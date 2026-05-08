@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="res_config_settings_view_form_elksattendance" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.elksattendance</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="hr_attendance.res_config_settings_view_form"/>
+        <field name="priority" eval="90"/>
+        <field name="arch" type="xml">
+
+            <!-- Insert the Timecard Email block after the last existing block -->
+            <xpath expr="//app[@name='hr_attendance']" position="inside">
+                <block title="Timecard Email" name="timecard_email_settings">
+                    <setting string="Scheduled Timecard Email"
+                             help="Automatically generate and email a PDF timecard report for all paid employees on a recurring schedule.">
+                        <field name="timecard_email_enabled"/>
+                        <div invisible="not timecard_email_enabled">
+                            <div class="row mt-2">
+                                <label for="timecard_email_recipient"
+                                       class="col-lg-3 o_light_label"/>
+                                <field name="timecard_email_recipient"
+                                       placeholder="payroll@yourlodge.com"
+                                       class="col-lg-5"
+                                       widget="email"/>
+                            </div>
+                            <div class="row mt-2">
+                                <label for="timecard_email_frequency"
+                                       class="col-lg-3 o_light_label"/>
+                                <field name="timecard_email_frequency"
+                                       class="col-lg-5"/>
+                            </div>
+                            <div class="text-muted mt-2" style="font-size: 0.9em;">
+                                The report covers the most recently completed period
+                                and is sent via Odoo's configured outgoing mail server.
+                            </div>
+                        </div>
+                    </setting>
+                </block>
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>

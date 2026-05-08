@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================
+         Manager: Team Attendances — security group
+         Sits between the built-in "Officer" (per-employee assignment)
+         and "Officer: Manage all attendances" (global access).
+         ============================================================ -->
+    <record id="group_hr_attendance_team_manager" model="res.groups">
+        <field name="name">Manager: Team Attendances</field>
+        <field name="sequence">12</field>
+        <field name="privilege_id"
+               ref="hr_attendance.res_groups_privilege_attendances"/>
+        <field name="implied_ids"
+               eval="[(4, ref('hr_attendance.group_hr_attendance_officer'))]"/>
+        <field name="comment">
+            The user can view and edit attendance records for any employee
+            who reports to them (directly or indirectly) in the org tree.
+            Determined by the parent_id / Manager field on the employee form.
+        </field>
+    </record>
+
+    <!-- Make sure "Manage all attendances" still implies our new group
+         so anyone with full access also gets team access automatically -->
+    <record id="hr_attendance.group_hr_attendance_user" model="res.groups">
+        <field name="implied_ids"
+               eval="[(4, ref('elksattendance.group_hr_attendance_team_manager'))]"/>
+    </record>
+
+    <!-- ============================================================
+         Manager: Team Employees — security group
+         Sits before the built-in "Officer: Manage all employees" so
+         a manager can view/edit employee records only for their
+         subordinates in the org tree.
+         ============================================================ -->
+    <record id="group_hr_team_manager" model="res.groups">
+        <field name="name">Manager: Team Employees</field>
+        <field name="sequence">5</field>
+        <field name="privilege_id"
+               ref="hr.res_groups_privilege_employees"/>
+        <field name="implied_ids"
+               eval="[(4, ref('base.group_user'))]"/>
+        <field name="comment">
+            The user can view and edit employee records for anyone
+            who reports to them (directly or indirectly) in the org tree.
+            Determined by the parent_id / Manager field on the employee form.
+        </field>
+    </record>
+
+    <!-- Make sure "Officer: Manage all employees" implies our new group -->
+    <record id="hr.group_hr_user" model="res.groups">
+        <field name="implied_ids"
+               eval="[(4, ref('elksattendance.group_hr_team_manager'))]"/>
+    </record>
+
+    <data noupdate="1">
+
+        <!-- ============================================================
+             Record rule: Team managers see only subordinate employees
+             ============================================================
+
+             Because Odoo ANDs global rules with group rules, a user in
+             this group sees: (company employees) AND (subordinates + own)
+             = only their team within the company.
+
+             Users in "Officer: Manage all employees" have NO group rule
+             on hr.employee, so they see all company employees as before.
+        -->
+        <record id="hr_employee_rule_team_manager" model="ir.rule">
+            <field name="name">Employee Team Manager: subordinates + own</field>
+            <field name="model_id" ref="hr.model_hr_employee"/>
+            <field name="domain_force">[
+                '|',
+                ('x_manager_user_ids', 'in', user.id),
+                ('user_id', '=', user.id)
+            ]</field>
+            <field name="groups"
+                   eval="[(4, ref('elksattendance.group_hr_team_manager'))]"/>
+            <field name="perm_create" eval="1"/>
+            <field name="perm_write" eval="1"/>
+            <field name="perm_unlink" eval="1"/>
+            <field name="perm_read" eval="1"/>
+        </record>
+
+        <!-- ============================================================
+             Officers / Admins: unrestricted employee access
+             ============================================================
+             Because Officer implies Team Manager (so officers inherit
+             team-level features), we must add an "allow all" rule for
+             Officer.  Odoo ORs group rules together, so:
+               Team Manager only  → subordinates + own
+               Officer or higher  → (subordinates + own) OR (all) = all
+        -->
+        <record id="hr_employee_rule_officer_all" model="ir.rule">
+            <field name="name">Employee Officer: see all employees</field>
+            <field name="model_id" ref="hr.model_hr_employee"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups"
+                   eval="[(4, ref('hr.group_hr_user'))]"/>
+            <field name="perm_create" eval="1"/>
+            <field name="perm_write" eval="1"/>
+            <field name="perm_unlink" eval="1"/>
+            <field name="perm_read" eval="1"/>
+        </record>
+
+        <!-- ============================================================
+             Record rule: Team managers see attendance of subordinates
+             ============================================================
+
+             Domain explanation:
+             - Employee's x_manager_user_ids contains the current user, OR
+             - It's the user's own attendance record (so a manager can
+               still see their own check-ins).
+        -->
+        <record id="hr_attendance_rule_team_manager" model="ir.rule">
+            <field name="name">Attendance Team Manager: subordinates + own</field>
+            <field name="model_id" ref="hr_attendance.model_hr_attendance"/>
+            <field name="domain_force">[
+                '|',
+                ('employee_id.x_manager_user_ids', 'in', user.id),
+                ('employee_id.user_id', '=', user.id)
+            ]</field>
+            <field name="groups"
+                   eval="[(4, ref('elksattendance.group_hr_attendance_team_manager'))]"/>
+            <field name="perm_create" eval="1"/>
+            <field name="perm_write" eval="1"/>
+            <field name="perm_unlink" eval="1"/>
+            <field name="perm_read" eval="1"/>
+        </record>
+
+        <!-- Officers / Admins: unrestricted attendance access -->
+        <record id="hr_attendance_rule_officer_all" model="ir.rule">
+            <field name="name">Attendance Officer: see all attendance</field>
+            <field name="model_id" ref="hr_attendance.model_hr_attendance"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups"
+                   eval="[(4, ref('hr_attendance.group_hr_attendance_user'))]"/>
+            <field name="perm_create" eval="1"/>
+            <field name="perm_write" eval="1"/>
+            <field name="perm_unlink" eval="1"/>
+            <field name="perm_read" eval="1"/>
+        </record>
+
+    </data>
+
+</odoo>

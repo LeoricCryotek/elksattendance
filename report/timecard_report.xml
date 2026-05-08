@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <record id="action_report_timecard" model="ir.actions.report">
+        <field name="name">Employee Timecard</field>
+        <field name="model">elks.timecard.report.wizard</field>
+        <field name="report_type">qweb-html</field>
+        <field name="report_name">elksattendance.report_employee_timecard</field>
+        <field name="report_file">elksattendance.report_employee_timecard</field>
+    </record>
+
+    <!-- Companion PDF report for download -->
+    <record id="action_report_timecard_pdf" model="ir.actions.report">
+        <field name="name">Employee Timecard (PDF)</field>
+        <field name="model">elks.timecard.report.wizard</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">elksattendance.report_employee_timecard</field>
+        <field name="report_file">elksattendance.report_employee_timecard</field>
+    </record>
+
+    <template id="report_employee_timecard">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="wizard">
+                <t t-set="grouped" t-value="wizard._get_attendance_data()"/>
+                <t t-set="sorted_employees" t-value="sorted(grouped.keys(), key=lambda e: e.name)"/>
+                <t t-set="settings"
+                   t-value="wizard.env['elks.lodge.settings'].sudo().search([], limit=1)"/>
+
+                <t t-foreach="sorted_employees" t-as="employee">
+                        <div class="page" style="font-size: 12px;">
+                            <!-- ===== LODGE HEADER WITH LOGOS ===== -->
+                            <table style="width: 100%; margin-bottom: 10px; border: none;">
+                                <tr>
+                                    <td style="width: 15%; text-align: center; vertical-align: middle; border: none; padding: 0;">
+                                        <t t-if="settings and settings.logo_primary">
+                                            <img t-att-src="image_data_uri(settings.logo_primary)"
+                                                 style="max-height: 80px; max-width: 100px;"
+                                                 alt="Elks USA"/>
+                                        </t>
+                                    </td>
+                                    <td style="text-align: center; vertical-align: middle; border: none; padding: 0 10px;">
+                                        <h2 style="font-size: 22px; margin: 0 0 2px 0; color: #333;">
+                                            <t t-if="settings and settings.name">
+                                                <span t-field="settings.name"/>
+                                            </t>
+                                            <t t-else="">Elks Lodge</t>
+                                            <t t-if="settings and settings.lodge_number">
+                                                #<span t-field="settings.lodge_number"/>
+                                            </t>
+                                        </h2>
+                                        <p style="color: #777; font-size: 11px; margin: 0;">
+                                            Benevolent and Protective Order of Elks
+                                        </p>
+                                        <h3 style="font-size: 18px; margin: 6px 0 0 0; color: #003366;">
+                                            Employee Timecard
+                                        </h3>
+                                    </td>
+                                    <td style="width: 15%; text-align: center; vertical-align: middle; border: none; padding: 0;">
+                                        <t t-if="settings and settings.logo_lodge">
+                                            <img t-att-src="image_data_uri(settings.logo_lodge)"
+                                                 style="max-height: 80px; max-width: 100px;"
+                                                 alt="Lodge Logo"/>
+                                        </t>
+                                    </td>
+                                </tr>
+                            </table>
+                            <div style="border-top: 2px solid #003366; margin-bottom: 15px;"/>
+
+                            <!-- Employee info and period -->
+                            <div style="margin-bottom:20px;">
+                                <table style="width:100%;">
+                                    <tr>
+                                        <td style="width:60%;">
+                                            <h3 style="margin:0; color:#333;">
+                                                <span t-esc="employee.name"/>
+                                            </h3>
+                                            <p style="margin:4px 0 0 0; font-size:12px; color:#777;"
+                                               t-if="employee.department_id">
+                                                Department: <span t-esc="employee.department_id.name"/>
+                                            </p>
+                                        </td>
+                                        <td style="width:40%; text-align:right; vertical-align:top;">
+                                            <p style="margin:0; font-size:12px; color:#555;">
+                                                <strong>Period:</strong>
+                                                <span t-field="wizard.date_from"
+                                                      t-options='{"format": "MM/dd/yyyy"}'/>
+                                                —
+                                                <span t-field="wizard.date_to"
+                                                      t-options='{"format": "MM/dd/yyyy"}'/>
+                                            </p>
+                                            <p style="margin:4px 0 0 0; font-size:11px; color:#888;">
+                                                Printed: <span t-esc="time.strftime('%m/%d/%Y')"/>
+                                            </p>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
+
+                            <!-- Attendance table -->
+                            <t t-set="records" t-value="grouped[employee].sorted(key=lambda a: a.check_in)"/>
+                            <t t-set="total_hours" t-value="0"/>
+                            <t t-set="is_tipped" t-value="employee.x_receives_tips"/>
+                            <t t-set="total_tips" t-value="0"/>
+
+                            <table style="width:100%; border-collapse:collapse; font-size:12px;">
+                                <thead>
+                                    <tr style="background:#e8e8e8;">
+                                        <th style="padding:6px 8px; border:1px solid #ccc; text-align:left; width:20%;">Date</th>
+                                        <th style="padding:6px 8px; border:1px solid #ccc; text-align:left; width:12%;">Day</th>
+                                        <th style="padding:6px 8px; border:1px solid #ccc; text-align:center; width:18%;">Check In</th>
+                                        <th style="padding:6px 8px; border:1px solid #ccc; text-align:center; width:18%;">Check Out</th>
+                                        <th style="padding:6px 8px; border:1px solid #ccc; text-align:right; width:14%;">Hours</th>
+                                        <t t-if="is_tipped">
+                                            <th style="padding:6px 8px; border:1px solid #ccc; text-align:right; width:10%;">Tips</th>
+                                        </t>
+                                        <th style="padding:6px 8px; border:1px solid #ccc; text-align:right; width:14%;">Running Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <t t-foreach="records" t-as="att">
+                                        <t t-set="hours" t-value="att.worked_hours or 0.0"/>
+                                        <t t-set="total_hours" t-value="total_hours + hours"/>
+                                        <t t-if="is_tipped">
+                                            <t t-set="total_tips" t-value="total_tips + (att.x_tip_amount or 0.0)"/>
+                                        </t>
+                                        <tr>
+                                            <td style="padding:5px 8px; border:1px solid #ddd;">
+                                                <span t-esc="wizard._format_date(att.check_in)"/>
+                                            </td>
+                                            <td style="padding:5px 8px; border:1px solid #ddd;">
+                                                <span t-esc="att.check_in.strftime('%a') if att.check_in else ''"/>
+                                            </td>
+                                            <td style="padding:5px 8px; border:1px solid #ddd; text-align:center;">
+                                                <span t-esc="wizard._format_time(att.check_in)"/>
+                                            </td>
+                                            <td style="padding:5px 8px; border:1px solid #ddd; text-align:center;">
+                                                <t t-if="att.check_out">
+                                                    <span t-esc="wizard._format_time(att.check_out)"/>
+                                                </t>
+                                                <t t-else="">
+                                                    <span style="color:red; font-style:italic;">OPEN</span>
+                                                </t>
+                                            </td>
+                                            <td style="padding:5px 8px; border:1px solid #ddd; text-align:right;">
+                                                <span t-esc="wizard._format_hours(hours)"/>
+                                            </td>
+                                            <t t-if="is_tipped">
+                                                <td style="padding:5px 8px; border:1px solid #ddd; text-align:right;">
+                                                    <span t-esc="'$%.2f' % (att.x_tip_amount or 0.0)"/>
+                                                </td>
+                                            </t>
+                                            <td style="padding:5px 8px; border:1px solid #ddd; text-align:right; color:#666;">
+                                                <span t-esc="wizard._format_hours(total_hours)"/>
+                                            </td>
+                                        </tr>
+                                    </t>
+                                </tbody>
+                                <tfoot>
+                                    <tr style="background:#f0f0f0; font-weight:bold;">
+                                        <td t-att-colspan="4" style="padding:6px 8px; border:1px solid #ccc; text-align:right;">
+                                            Period Total:
+                                        </td>
+                                        <td style="padding:6px 8px; border:1px solid #ccc; text-align:right;">
+                                            <span t-esc="wizard._format_hours(total_hours)"/>
+                                        </td>
+                                        <t t-if="is_tipped">
+                                            <td style="padding:6px 8px; border:1px solid #ccc; text-align:right;">
+                                                <span t-esc="'$%.2f' % total_tips"/>
+                                            </td>
+                                        </t>
+                                        <td style="padding:6px 8px; border:1px solid #ccc; text-align:right;">
+                                            <span t-esc="wizard._format_hours(total_hours)"/>
+                                            <span style="font-size:10px; color:#666;">
+                                                (<span t-esc="'%.2f' % total_hours"/> decimal)
+                                            </span>
+                                        </td>
+                                    </tr>
+                                    <tr style="font-size:11px; color:#888;">
+                                        <td colspan="4" style="padding:4px 8px; text-align:right;">
+                                            Total entries:
+                                        </td>
+                                        <td t-att-colspan="'3' if is_tipped else '2'" style="padding:4px 8px; text-align:right;">
+                                            <span t-esc="len(records)"/>
+                                        </td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+
+                            <!-- Signature line -->
+                            <div style="margin-top:50px;">
+                                <table style="width:100%;">
+                                    <tr>
+                                        <td style="width:50%; border-top:1px solid #333; padding-top:4px;">
+                                            Employee Signature
+                                        </td>
+                                        <td style="width:10%;"/>
+                                        <td style="width:40%; border-top:1px solid #333; padding-top:4px;">
+                                            Supervisor / Date
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </div>
+                </t>
+            </t>
+        </t>
+    </template>
+
+</odoo>

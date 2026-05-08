@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <!-- Add the "tips" display state to the kiosk app template,
+         inserted right after the "greet" block. -->
+    <t t-name="hr_attendance.public_kiosk_app" t-inherit="hr_attendance.public_kiosk_app" t-inherit-mode="extension">
+        <xpath expr="//t[@t-if=&quot;this.state.active_display === 'greet'&quot;]" position="after">
+            <t t-if="this.state.active_display === 'tips'">
+                <KioskTipEntry
+                    employeeData="this.employeeData"
+                    onTipConfirm="(amount) => this.onTipConfirm(amount)"
+                    onTipSkip="() => this.onTipSkip()"/>
+            </t>
+        </xpath>
+    </t>
+
+</templates>

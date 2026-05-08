@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Timecard Report under Attendance → Reporting -->
+    <menuitem id="menu_attendance_timecard_report"
+              name="Payroll Timecards"
+              parent="hr_attendance.menu_hr_attendance_reporting"
+              action="action_elks_timecard_report_wizard"
+              sequence="20"/>
+
+    <!-- Also keep it accessible from Elks Charity → Reports
+         if elkscharity is installed (cross-module menu) -->
+    <menuitem id="menu_elkscharity_timecard_report"
+              name="Timecard Report"
+              parent="elkscharity.menu_elkscharity_reports"
+              action="action_elks_timecard_report_wizard"
+              sequence="10"/>
+
+</odoo>

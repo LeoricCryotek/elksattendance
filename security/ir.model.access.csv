@@ -1,0 +1,7 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_timecard_report_wizard,elks.timecard.report.wizard,model_elks_timecard_report_wizard,base.group_user,1,1,1,1
+access_hr_employee_team_manager,hr.employee.team.manager,hr.model_hr_employee,elksattendance.group_hr_team_manager,1,1,1,1
+access_hr_employee_category_team_manager,hr.employee.category.team.manager,hr.model_hr_employee_category,elksattendance.group_hr_team_manager,1,1,1,1
+access_hr_department_team_manager,hr.department.team.manager,hr.model_hr_department,elksattendance.group_hr_team_manager,1,1,1,1
+access_hr_job_team_manager,hr.job.team.manager,hr.model_hr_job,elksattendance.group_hr_team_manager,1,1,1,1
+access_resource_resource_team_manager,resource.resource.team.manager,resource.model_resource_resource,elksattendance.group_hr_team_manager,1,1,1,1

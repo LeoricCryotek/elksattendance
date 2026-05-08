@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Add "Tipped Shift" column to the attendance list view -->
+    <record id="view_attendance_tree_inherit_tips" model="ir.ui.view">
+        <field name="name">hr.attendance.tree.tips</field>
+        <field name="model">hr.attendance</field>
+        <field name="inherit_id" ref="hr_attendance.view_attendance_tree"/>
+        <field name="arch" type="xml">
+            <field name="worked_hours" position="after">
+                <field name="x_is_tipped_shift" optional="show"
+                       widget="boolean_toggle"/>
+                <field name="x_tip_amount" optional="show"
+                       invisible="not x_is_tipped_shift"
+                       readonly="not x_is_tipped_shift"/>
+            </field>
+        </field>
+    </record>
+
+    <!-- Add tip/gratuity fields to the attendance form view -->
+    <record id="view_attendance_form_inherit_tips" model="ir.ui.view">
+        <field name="name">hr.attendance.form.tips</field>
+        <field name="model">hr.attendance</field>
+        <field name="inherit_id" ref="hr_attendance.hr_attendance_view_form"/>
+        <field name="arch" type="xml">
+            <group name="check_out_group" position="after">
+                <separator string="Tips / Gratuity"
+                           invisible="not x_is_tipped_shift"/>
+                <group colspan="2" invisible="not x_is_tipped_shift">
+                    <group>
+                        <field name="x_is_tipped_shift" readonly="1"/>
+                        <field name="x_tip_amount"/>
+                    </group>
+                </group>
+            </group>
+        </field>
+    </record>
+
+    <!-- Add "Tipped Shift" filter and group-by to the attendance search -->
+    <record id="view_attendance_search_inherit_tips" model="ir.ui.view">
+        <field name="name">hr.attendance.search.tips</field>
+        <field name="model">hr.attendance</field>
+        <field name="inherit_id" ref="hr_attendance.hr_attendance_view_filter"/>
+        <field name="arch" type="xml">
+            <xpath expr="//search" position="inside">
+                <separator/>
+                <filter name="filter_tipped" string="Tipped Shifts"
+                        domain="[('x_is_tipped_shift', '=', True)]"/>
+                <filter name="filter_not_tipped" string="Non-Tipped Shifts"
+                        domain="[('x_is_tipped_shift', '=', False)]"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

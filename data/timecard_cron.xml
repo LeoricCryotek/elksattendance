@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- Daily cron that checks frequency settings and sends timecard
+             email on the appropriate day.  Runs at 6:00 AM server time
+             so the report is in the recipient's inbox before the workday. -->
+        <record id="ir_cron_timecard_email" model="ir.cron">
+            <field name="name">Attendance: Send Timecard Email</field>
+            <field name="model_id" ref="model_elksattendance_timecard_cron"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_send_timecard_email()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+
+            <field name="nextcall">2026-05-02 06:00:00</field>
+            <field name="active" eval="True"/>
+            <field name="priority">50</field>
+        </record>
+
+    </data>
+</odoo>

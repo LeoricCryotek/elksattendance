@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+<t t-name="elksattendance.KioskTipEntry">
+    <div class="o_hr_kiosk_mode_main d-flex flex-grow-1 justify-content-center align-items-center">
+        <div class="card rounded-3" style="min-width: 380px;">
+            <div class="card-body rounded-3 text-center">
+                <t t-call="hr_attendance.EmployeeBadge">
+                    <t t-set="employeeAvatar" t-value="this.props.employeeData.employee_avatar"/>
+                    <t t-set="employeeAvatarHeight" t-value="'60'"/>
+                </t>
+                <h3 class="mt-2 mb-1">
+                    <t t-esc="this.props.employeeData.employee_name"/>
+                </h3>
+                <h5 class="text-muted my-0 mb-3">
+                    Enter your tips / gratuity for this shift
+                </h5>
+
+                <!-- Tip amount display -->
+                <div class="mb-3">
+                    <div class="border rounded p-3 bg-white text-center fs-2 fw-bold"
+                         style="font-family: monospace; min-height: 60px; line-height: 40px;">
+                        <t t-esc="displayValue"/>
+                    </div>
+                </div>
+
+                <!-- Number pad -->
+                <div class="row g-0 my-2">
+                    <div class="col-md-8 offset-md-2 o_hr_attendance_pin_pad">
+                        <div class="row g-2">
+                            <div class="col-4" t-foreach="padButtons" t-as="btn" t-key="btn[0]">
+                                <a href="#"
+                                   t-on-click.prevent="() => this.onClickPadButton(btn[0])"
+                                   t-attf-class="o_hr_attendance_PINbox_button btn {{btn[1] ? btn[1] : 'btn-secondary'}} d-flex align-items-center justify-content-center py-2 py-xl-3 rounded-1 fs-4">
+                                    <t t-esc="btn[0]"/>
+                                </a>
+                            </div>
+                        </div>
+
+                        <!-- Action buttons -->
+                        <div class="row g-2 mt-2">
+                            <div class="col-6">
+                                <a href="#"
+                                   t-on-click.prevent="() => this.props.onTipSkip()"
+                                   class="btn btn-outline-secondary d-flex align-items-center justify-content-center py-3 rounded-1 fs-5 w-100">
+                                    Skip
+                                </a>
+                            </div>
+                            <div class="col-6">
+                                <a href="#"
+                                   t-on-click.prevent="() => this.onConfirm()"
+                                   class="btn btn-primary d-flex align-items-center justify-content-center py-3 rounded-1 fs-5 w-100">
+                                    OK
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</t>
+
+</templates>
