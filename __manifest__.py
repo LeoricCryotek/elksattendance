@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Elks Attendance — Manager Security & Reporting",
-    "version": "19.0.1.3",
+    "version": "19.0.1.4",
     "category": "Human Resources",
     "summary": "Team-based attendance security and payroll timecard reports.",
     "description": """
