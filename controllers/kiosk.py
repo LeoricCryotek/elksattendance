@@ -1,4 +1,19 @@
 # -*- coding: utf-8 -*-
+# =============================================================================
+# === HUMAN ===
+# The time-clock (kiosk) side of tips. When a tipped employee clocks out, the
+# kiosk needs to know to show the tip keypad and where to save what they enter.
+# This adds that info to the kiosk responses and a route to save the tip.
+#
+# === AI AGENT ===
+# Subclasses core hr_attendance HrAttendance controller and OVERRIDES scan_barcode
+# / manual_selection to append x_receives_tips + the last attendance id to the
+# JSON response (the OWL kiosk patch in static/src reads these). save_tip is a
+# NEW public jsonrpc route — auth='public' is REQUIRED (the kiosk is
+# unauthenticated) and is the only legitimately public route in the module; it's
+# guarded by the company token + a company-match check. Not related to the
+# (login-only) timecard portal.
+# =============================================================================
 """Extend the HR Attendance kiosk controller for tip / gratuity entry.
 
 Adds ``x_receives_tips`` and the attendance record ID to every kiosk
@@ -11,10 +26,21 @@ from odoo.http import request
 from odoo.addons.hr_attendance.controllers.main import HrAttendance
 
 
+# === HUMAN ===
+# The kiosk controller with our tip additions.
+# === AI AGENT ===
+# Inherits the core controller so the @http.route() overrides reuse the parent
+# route definitions (path/auth/type) and only change the body.
 class HrAttendanceTips(HrAttendance):
 
     # ------------------------------------------------------------------
     # Helper – enrich a standard kiosk response with tip-tracking fields
+    # === HUMAN ===
+    # Tacks "does this person get tips?" and the just-created shift id onto the
+    # kiosk's reply so the screen can prompt for a tip.
+    # === AI AGENT ===
+    # last_attendance_id is the row just opened/closed by _attendance_action_change;
+    # the front-end needs its id to call save_tip after clock-out.
     # ------------------------------------------------------------------
     @staticmethod
     def _enrich_with_tip_info(response, employee):
@@ -27,6 +53,14 @@ class HrAttendanceTips(HrAttendance):
 
     # ------------------------------------------------------------------
     # Override the two kiosk routes that produce employee info responses
+    # === HUMAN ===
+    # The badge-scan and name+PIN clock-in/out paths — same as Odoo's, but the
+    # reply is enriched with tip info.
+    # === AI AGENT ===
+    # Bare @http.route() reuses the parent's path/auth. We call the SAME
+    # _attendance_action_change as core, then wrap _get_employee_info_response
+    # with _enrich_with_tip_info. Keep the empty-dict fallthroughs (kiosk expects
+    # {} on failure). The actual tip keypad/flow is in static/src OWL patches.
     # ------------------------------------------------------------------
     @http.route()
     def scan_barcode(self, token, barcode):
@@ -70,6 +104,12 @@ class HrAttendanceTips(HrAttendance):
 
     # ------------------------------------------------------------------
     # New route: save the tip amount entered at the kiosk
+    # === HUMAN ===
+    # Stores the gratuity the employee typed on the kiosk after clocking out.
+    # === AI AGENT ===
+    # PUBLIC jsonrpc (kiosk is unauthenticated) — security is the company token
+    # (_get_company) plus the attendance.company == token-company check. Do NOT
+    # trust attendance_id without that check. Writes x_tip_amount only.
     # ------------------------------------------------------------------
     @http.route(
         '/hr_attendance/save_tip',

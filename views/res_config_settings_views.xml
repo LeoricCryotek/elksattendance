@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
+    <!-- =====================================================================
+         === HUMAN ===
+         The Settings page block where the timecard email + alert options appear.
+         === AI AGENT ===
+         Inherited res.config.settings form; injects a block into the hr_attendance
+         app section. Fields map to ir.config_parameter via the settings model.
+         ===================================================================== -->
+
     <record id="res_config_settings_view_form_elksattendance" model="ir.ui.view">
         <field name="name">res.config.settings.view.form.inherit.elksattendance</field>
         <field name="model">res.config.settings</field>
@@ -8,33 +16,79 @@
         <field name="priority" eval="90"/>
         <field name="arch" type="xml">
 
-            <!-- Insert the Timecard Email block after the last existing block -->
             <xpath expr="//app[@name='hr_attendance']" position="inside">
-                <block title="Timecard Email" name="timecard_email_settings">
-                    <setting string="Scheduled Timecard Email"
-                             help="Automatically generate and email a PDF timecard report for all paid employees on a recurring schedule.">
-                        <field name="timecard_email_enabled"/>
-                        <div invisible="not timecard_email_enabled">
+                <block title="Timecard Emails &amp; Alerts" name="timecard_email_settings">
+
+                    <!-- Shared outgoing mail server -->
+                    <setting string="Outgoing Mail Server"
+                             help="Server used to send all timecard emails and alerts. Leave blank to use the system default.">
+                        <field name="timecard_mail_server_id"
+                               options="{'no_create': True}"/>
+                    </setting>
+
+                    <!-- Post-shift (delayed) email -->
+                    <setting string="Email Timecard After Clock-Out"
+                             help="A few minutes after an employee clocks out, email them their own current-period timecard with a verification notice. The delay lets any tip entered at the kiosk land on the card first.">
+                        <field name="timecard_post_shift_enabled"/>
+                        <div invisible="not timecard_post_shift_enabled">
                             <div class="row mt-2">
-                                <label for="timecard_email_recipient"
-                                       class="col-lg-3 o_light_label"/>
-                                <field name="timecard_email_recipient"
-                                       placeholder="payroll@yourlodge.com"
-                                       class="col-lg-5"
-                                       widget="email"/>
-                            </div>
-                            <div class="row mt-2">
-                                <label for="timecard_email_frequency"
-                                       class="col-lg-3 o_light_label"/>
-                                <field name="timecard_email_frequency"
-                                       class="col-lg-5"/>
-                            </div>
-                            <div class="text-muted mt-2" style="font-size: 0.9em;">
-                                The report covers the most recently completed period
-                                and is sent via Odoo's configured outgoing mail server.
+                                <label for="timecard_post_shift_delay_minutes"
+                                       class="col-lg-4 o_light_label"/>
+                                <field name="timecard_post_shift_delay_minutes"
+                                       class="col-lg-2"/>
+                                <span class="col-lg-4 o_light_label mt-1">minutes after clock-out</span>
                             </div>
                         </div>
                     </setting>
+
+                    <!-- Scheduled per-employee email -->
+                    <setting string="Scheduled Timecard Email"
+                             help="On the schedule below, email every paid employee their own timecard as a payroll-processing approval reminder. Each employee receives only their own card, sent to their work email.">
+                        <field name="timecard_email_enabled"/>
+                        <div invisible="not timecard_email_enabled">
+                            <div class="row mt-2">
+                                <label for="timecard_email_frequency"
+                                       class="col-lg-4 o_light_label"/>
+                                <field name="timecard_email_frequency"
+                                       class="col-lg-6"/>
+                            </div>
+                            <div class="text-muted mt-2" style="font-size: 0.9em;">
+                                Covers the most recently completed period. Employees
+                                with no payroll hours in the period are skipped.
+                            </div>
+                        </div>
+                    </setting>
+
+                    <!-- Approval deadline reminder -->
+                    <setting string="Approval Deadline Reminders"
+                             help="Before a pay period closes, remind anyone who hasn't approved (employee, then approver).">
+                        <field name="timecard_reminder_enabled"/>
+                        <div invisible="not timecard_reminder_enabled">
+                            <div class="row mt-2">
+                                <label for="timecard_reminder_lead_days"
+                                       class="col-lg-4 o_light_label"/>
+                                <field name="timecard_reminder_lead_days"
+                                       class="col-lg-2"/>
+                                <span class="col-lg-4 o_light_label mt-1">day(s) before close</span>
+                            </div>
+                        </div>
+                    </setting>
+
+                    <!-- Long-shift / missed clock-out alert -->
+                    <setting string="Alert on Missed Clock-Out"
+                             help="If an employee stays clocked in past the threshold, email them and their Attendance approver to adjust the timecard. Checked hourly; alerts once per shift.">
+                        <field name="timecard_long_shift_enabled"/>
+                        <div invisible="not timecard_long_shift_enabled">
+                            <div class="row mt-2">
+                                <label for="timecard_long_shift_threshold_hours"
+                                       class="col-lg-4 o_light_label"/>
+                                <field name="timecard_long_shift_threshold_hours"
+                                       class="col-lg-2"/>
+                                <span class="col-lg-4 o_light_label mt-1">hours</span>
+                            </div>
+                        </div>
+                    </setting>
+
                 </block>
             </xpath>
 

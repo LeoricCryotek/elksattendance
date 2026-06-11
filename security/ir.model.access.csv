@@ -5,3 +5,10 @@ access_hr_employee_category_team_manager,hr.employee.category.team.manager,hr.mo
 access_hr_department_team_manager,hr.department.team.manager,hr.model_hr_department,elksattendance.group_hr_team_manager,1,1,1,1
 access_hr_job_team_manager,hr.job.team.manager,hr.model_hr_job,elksattendance.group_hr_team_manager,1,1,1,1
 access_resource_resource_team_manager,resource.resource.team.manager,resource.model_resource_resource,elksattendance.group_hr_team_manager,1,1,1,1
+access_elks_timecard_user,elks.timecard.user,model_elks_timecard,base.group_user,1,1,1,0
+access_elks_timecard_officer,elks.timecard.officer,model_elks_timecard,hr_attendance.group_hr_attendance_user,1,1,1,1
+access_elks_timecard_portal,elks.timecard.portal,model_elks_timecard,base.group_portal,1,0,0,0
+access_elks_timecard_adj_user,elks.timecard.adjustment.user,model_elks_timecard_adjustment,base.group_user,1,1,1,0
+access_elks_timecard_adj_officer,elks.timecard.adjustment.officer,model_elks_timecard_adjustment,hr_attendance.group_hr_attendance_user,1,1,1,1
+access_elks_timecard_adj_portal,elks.timecard.adjustment.portal,model_elks_timecard_adjustment,base.group_portal,1,0,0,0
+access_elks_employee_link_wizard,elks.employee.link.wizard,model_elks_employee_link_wizard,base.group_user,1,1,1,1

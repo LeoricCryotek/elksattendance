@@ -1,6 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+
+    <!-- =====================================================================
+         === HUMAN ===
+         The scheduled jobs behind the emails: send post-shift cards, send the
+         scheduled card, check for missed clock-outs, and approval reminders.
+         === AI AGENT ===
+         ir.cron records (noupdate=1) calling elksattendance.timecard.cron methods.
+         Cadence lives here; the logic lives in models/timecard_cron.py.
+         ===================================================================== -->
     <data noupdate="1">
+
+        <!-- Every 5 minutes: send queued post-shift timecard emails whose
+             delay window (default 5 min after clock-out) has elapsed, so
+             tips entered at the kiosk are included. -->
+        <record id="ir_cron_post_shift_email" model="ir.cron">
+            <field name="name">Attendance: Send Post-Shift Timecard Emails</field>
+            <field name="model_id" ref="model_elksattendance_timecard_cron"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_send_post_shift_emails()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="nextcall">2026-05-02 06:00:00</field>
+            <field name="active" eval="True"/>
+            <field name="priority">45</field>
+        </record>
 
         <!-- Daily cron that checks frequency settings and sends timecard
              email on the appropriate day.  Runs at 6:00 AM server time
@@ -16,6 +40,35 @@
             <field name="nextcall">2026-05-02 06:00:00</field>
             <field name="active" eval="True"/>
             <field name="priority">50</field>
+        </record>
+
+        <!-- Daily cron: remind unapproved employees/approvers N days before
+             the current pay period closes. -->
+        <record id="ir_cron_approval_reminder" model="ir.cron">
+            <field name="name">Attendance: Timecard Approval Reminders</field>
+            <field name="model_id" ref="model_elksattendance_timecard_cron"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_approval_reminders()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="nextcall">2026-05-02 07:00:00</field>
+            <field name="active" eval="True"/>
+            <field name="priority">52</field>
+        </record>
+
+        <!-- Hourly cron that flags employees still clocked in past the
+             configured threshold (default 20h) as a possible missed
+             clock-out, emailing the employee and their Attendance approver. -->
+        <record id="ir_cron_long_shift_check" model="ir.cron">
+            <field name="name">Attendance: Check for Missed Clock-Outs</field>
+            <field name="model_id" ref="model_elksattendance_timecard_cron"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_check_long_shifts()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">hours</field>
+            <field name="nextcall">2026-05-02 06:30:00</field>
+            <field name="active" eval="True"/>
+            <field name="priority">55</field>
         </record>
 
     </data>

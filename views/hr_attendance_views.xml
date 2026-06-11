@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
+    <!-- =====================================================================
+         === HUMAN ===
+         Attendance list/form/search tweaks: tip columns and filters, plus a per-line
+         Approve Timecard button that hides once the period is approved (locked).
+         === AI AGENT ===
+         Inherited views of core hr.attendance views. The form adds a <header> with
+         the approve button bound to x_timecard_state (non-stored compute).
+         ===================================================================== -->
+
     <!-- Add "Tipped Shift" column to the attendance list view -->
     <record id="view_attendance_tree_inherit_tips" model="ir.ui.view">
         <field name="name">hr.attendance.tree.tips</field>
@@ -23,6 +32,19 @@
         <field name="model">hr.attendance</field>
         <field name="inherit_id" ref="hr_attendance.hr_attendance_view_form"/>
         <field name="arch" type="xml">
+            <xpath expr="//sheet" position="before">
+                <header>
+                    <field name="x_timecard_state" invisible="1"/>
+                    <button name="action_elks_approve_timecard" type="object"
+                            string="Approve Timecard" class="btn-primary"
+                            invisible="x_timecard_state == 'approved'"
+                            help="Approve this employee's pay-period timecard (supervisor / override)."/>
+                    <span class="badge text-bg-success ms-2"
+                          invisible="x_timecard_state != 'approved'">
+                        Timecard Approved (locked)
+                    </span>
+                </header>
+            </xpath>
             <group name="check_out_group" position="after">
                 <separator string="Tips / Gratuity"
                            invisible="not x_is_tipped_shift"/>

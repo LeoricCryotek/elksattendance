@@ -1,4 +1,15 @@
 /** @odoo-module **/
+// ============================================================================
+// === HUMAN ===
+// Inserts the tip-entry screen into the time-clock flow: after a tipped
+// employee clocks out, show the keypad, save the tip, then the greeting.
+// === AI AGENT ===
+// patch() of hr_attendance public_kiosk_app. Adds a 'tips' display state and
+// intercepts onManualSelection/onBarcodeScanned to route there when
+// employeeData.x_receives_tips and a check_out happened. onTipConfirm calls
+// rpc('/hr_attendance/save_tip'). Relies on the controller enriching the
+// kiosk response (controllers/kiosk.py).
+// ============================================================================
 /**
  * Patch the public kiosk app to insert a tip-entry screen between
  * clock-out and the greeting screen for tipped employees.

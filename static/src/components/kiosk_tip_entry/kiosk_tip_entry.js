@@ -1,4 +1,14 @@
 /** @odoo-module **/
+// ============================================================================
+// === HUMAN ===
+// The on-screen number keypad a tipped employee uses to enter their gratuity
+// at the time clock after clocking out.
+// === AI AGENT ===
+// OWL Component KioskTipEntry, modeled on KioskPinCode. Props: employeeData,
+// onTipConfirm, onTipSkip. Pure UI — no RPC here; the parent kiosk app (see
+// kiosk_tip_patch.js) calls /hr_attendance/save_tip. Loaded into the
+// hr_attendance.assets_public_attendance bundle.
+// ============================================================================
 import { Component, useState, onWillDestroy } from "@odoo/owl";
 import { browser } from "@web/core/browser/browser";
 

@@ -1,7 +1,20 @@
 # -*- coding: utf-8 -*-
+# =============================================================================
+# === HUMAN ===
+# The module's "label": its name/version, what other apps it needs, and the
+# ordered list of data files (security first, then views/reports/data) plus the
+# kiosk front-end assets.
+#
+# === AI AGENT ===
+# Standard Odoo manifest dict. 'depends' includes portal + website (the timecard
+# portal) and elksfrs/elkscharity (lodge settings + the x_charity_task_id field
+# the payroll domain excludes). 'data' order matters: security loads before the
+# views that reference groups. Bump 'version' on every change so migrations in
+# migrations/<version>/ run on upgrade. Assets target the public attendance bundle.
+# =============================================================================
 {
     "name": "Elks Attendance — Manager Security & Reporting",
-    "version": "19.0.1.4",
+    "version": "19.0.4.10",
     "category": "Human Resources",
     "summary": "Team-based attendance security and payroll timecard reports.",
     "description": """
@@ -45,6 +58,8 @@ assign each employee individually.
     "depends": [
         "hr_attendance",
         "mail",
+        "portal",
+        "website",
         "elksfrs",
         "elkscharity",
     ],
@@ -52,10 +67,13 @@ assign each employee individually.
         "security/elksattendance_security.xml",
         "security/ir.model.access.csv",
         "wizard/timecard_report_wizard_views.xml",
+        "wizard/employee_link_wizard_views.xml",
         "report/timecard_report.xml",
         "views/hr_employee_views.xml",
         "views/hr_attendance_views.xml",
         "views/res_config_settings_views.xml",
+        "views/elks_timecard_views.xml",
+        "views/portal_templates.xml",
         "views/elksattendance_menus.xml",
         "data/timecard_cron.xml",
     ],

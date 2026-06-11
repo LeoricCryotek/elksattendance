@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
+    <!-- ===================================================================
+         === HUMAN ===
+         Splices the tip screen into the kiosk app's template right after the
+         greeting block.
+         === AI AGENT ===
+         t-inherit of hr_attendance.public_kiosk_app adding the 'tips' state that
+         renders <KioskTipEntry/>.
+         =================================================================== -->
 
     <!-- Add the "tips" display state to the kiosk app template,
          inserted right after the "greet" block. -->

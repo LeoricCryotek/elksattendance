@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
+    <!-- =====================================================================
+         === HUMAN ===
+         The Payroll Timecards pop-up: pick employees/period and the Preview,
+         Download PDF, Export CSV and period-navigation buttons.
+         === AI AGENT ===
+         Form view + act_window for elks.timecard.report.wizard (target=new).
+         ===================================================================== -->
+
     <record id="view_elks_timecard_report_wizard_form" model="ir.ui.view">
         <field name="name">elks.timecard.report.wizard.form</field>
         <field name="model">elks.timecard.report.wizard</field>

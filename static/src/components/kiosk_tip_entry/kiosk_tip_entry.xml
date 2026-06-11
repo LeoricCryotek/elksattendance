@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
+    <!-- ===================================================================
+         === HUMAN ===
+         The markup for the kiosk tip keypad (badge, amount display, number pad,
+         Skip / OK buttons).
+         === AI AGENT ===
+         OWL template elksattendance.KioskTipEntry used by kiosk_tip_entry.js.
+         =================================================================== -->
 
 <t t-name="elksattendance.KioskTipEntry">
     <div class="o_hr_kiosk_mode_main d-flex flex-grow-1 justify-content-center align-items-center">

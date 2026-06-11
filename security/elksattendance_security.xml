@@ -1,6 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
+    <!-- =====================================================================
+         === HUMAN ===
+         Who can see and do what. Adds two "team manager" roles (see only your
+         own reports' attendance/employees), and the rules that decide which
+         timecards and adjustment-requests each person can read or edit:
+         your own, ones you approve, your team, officers see all, portal users
+         see only their own.
+
+         === AI AGENT ===
+         res.groups + ir.rule. Pattern: a restrictive team rule for the team
+         group PLUS an "allow all" [(1,=,1)] rule for the officer group, OR'd
+         together (officers also belong to the team group, so without the
+         companion rule they'd be locked to their subtree). x_manager_user_ids
+         (cached manager chain on hr.employee) powers the team domains. The
+         <data noupdate="1"> rules are recreated by the 19.0.1.1 migration; do
+         not casually rename their xml ids. Portal rules match by user_id OR
+         work_contact_id (multi-role person).
+         ===================================================================== -->
+
     <!-- ============================================================
          Manager: Team Attendances — security group
          Sits between the built-in "Officer" (per-employee assignment)
@@ -139,6 +158,102 @@
             <field name="perm_write" eval="1"/>
             <field name="perm_unlink" eval="1"/>
             <field name="perm_read" eval="1"/>
+        </record>
+
+        <!-- ============================================================
+             elks.timecard record rules
+             ============================================================ -->
+
+        <!-- Internal users: own card, cards they approve, or their team -->
+        <record id="elks_timecard_rule_user" model="ir.rule">
+            <field name="name">Timecard: own / approver / team</field>
+            <field name="model_id" ref="model_elks_timecard"/>
+            <field name="domain_force">[
+                '|', '|',
+                ('employee_id.user_id', '=', user.id),
+                ('approver_id', '=', user.id),
+                ('employee_id.x_manager_user_ids', 'in', user.id)
+            ]</field>
+            <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+            <field name="perm_read" eval="1"/>
+            <field name="perm_write" eval="1"/>
+            <field name="perm_create" eval="1"/>
+            <field name="perm_unlink" eval="0"/>
+        </record>
+
+        <!-- Attendance officers / admins: all timecards -->
+        <record id="elks_timecard_rule_officer" model="ir.rule">
+            <field name="name">Timecard: officers see all</field>
+            <field name="model_id" ref="model_elks_timecard"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups"
+                   eval="[(4, ref('hr_attendance.group_hr_attendance_user'))]"/>
+            <field name="perm_read" eval="1"/>
+            <field name="perm_write" eval="1"/>
+            <field name="perm_create" eval="1"/>
+            <field name="perm_unlink" eval="1"/>
+        </record>
+
+        <!-- Portal users: only their own timecard (by related user or contact) -->
+        <record id="elks_timecard_rule_portal" model="ir.rule">
+            <field name="name">Timecard: portal own</field>
+            <field name="model_id" ref="model_elks_timecard"/>
+            <field name="domain_force">[
+                '|',
+                ('employee_id.user_id', '=', user.id),
+                ('employee_id.work_contact_id', '=', user.partner_id.id)
+            ]</field>
+            <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
+            <field name="perm_read" eval="1"/>
+            <field name="perm_write" eval="0"/>
+            <field name="perm_create" eval="0"/>
+            <field name="perm_unlink" eval="0"/>
+        </record>
+
+        <!-- ============================================================
+             elks.timecard.adjustment record rules (mirror the timecard)
+             ============================================================ -->
+        <record id="elks_timecard_adj_rule_user" model="ir.rule">
+            <field name="name">Adjustment: own / approver / team</field>
+            <field name="model_id" ref="model_elks_timecard_adjustment"/>
+            <field name="domain_force">[
+                '|', '|',
+                ('employee_id.user_id', '=', user.id),
+                ('timecard_id.approver_id', '=', user.id),
+                ('employee_id.x_manager_user_ids', 'in', user.id)
+            ]</field>
+            <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+            <field name="perm_read" eval="1"/>
+            <field name="perm_write" eval="1"/>
+            <field name="perm_create" eval="1"/>
+            <field name="perm_unlink" eval="0"/>
+        </record>
+
+        <record id="elks_timecard_adj_rule_officer" model="ir.rule">
+            <field name="name">Adjustment: officers see all</field>
+            <field name="model_id" ref="model_elks_timecard_adjustment"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups"
+                   eval="[(4, ref('hr_attendance.group_hr_attendance_user'))]"/>
+            <field name="perm_read" eval="1"/>
+            <field name="perm_write" eval="1"/>
+            <field name="perm_create" eval="1"/>
+            <field name="perm_unlink" eval="1"/>
+        </record>
+
+        <record id="elks_timecard_adj_rule_portal" model="ir.rule">
+            <field name="name">Adjustment: portal own</field>
+            <field name="model_id" ref="model_elks_timecard_adjustment"/>
+            <field name="domain_force">[
+                '|',
+                ('employee_id.user_id', '=', user.id),
+                ('employee_id.work_contact_id', '=', user.partner_id.id)
+            ]</field>
+            <field name="groups" eval="[(4, ref('base.group_portal'))]"/>
+            <field name="perm_read" eval="1"/>
+            <field name="perm_write" eval="0"/>
+            <field name="perm_create" eval="0"/>
+            <field name="perm_unlink" eval="0"/>
         </record>
 
     </data>

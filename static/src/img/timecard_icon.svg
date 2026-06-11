@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Timecards">
+  <rect x="10" y="8" width="44" height="48" rx="6" ry="6" fill="#ffffff" stroke="#003366" stroke-width="3"/>
+  <rect x="10" y="8" width="44" height="12" rx="6" ry="6" fill="#003366"/>
+  <rect x="10" y="14" width="44" height="6" fill="#003366"/>
+  <line x1="18" y1="30" x2="40" y2="30" stroke="#2E75B6" stroke-width="3" stroke-linecap="round"/>
+  <line x1="18" y1="38" x2="34" y2="38" stroke="#9bbbe0" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="44" cy="44" r="13" fill="#2E75B6" stroke="#ffffff" stroke-width="2"/>
+  <path d="M38 44.5 L42.5 49 L50 40" fill="none" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
+    <!-- =====================================================================
+         === HUMAN ===
+         The menu entries this module adds: "Payroll Timecards" under the
+         Attendances app's Reporting menu, plus a copy under Elks Charity.
+         === AI AGENT ===
+         menuitem records only. Parents reference hr_attendance / elkscharity
+         menu xml ids (those modules must be installed). The Timecard Approvals
+         and Adjustment Requests menus live in elks_timecard_views.xml.
+         ===================================================================== -->
+
     <!-- Timecard Report under Attendance → Reporting -->
     <menuitem id="menu_attendance_timecard_report"
               name="Payroll Timecards"

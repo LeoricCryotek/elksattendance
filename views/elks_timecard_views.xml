@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- =====================================================================
+         === HUMAN ===
+         The backend screens for timecards and adjustment requests: lists, forms with
+         approve/reopen/apply buttons, filters, and the Attendances menu entries.
+         === AI AGENT ===
+         Views + actions + menus for elks.timecard and elks.timecard.adjustment.
+         Menu parent is hr_attendance.menu_hr_attendance_root.
+         ===================================================================== -->
+
+    <!-- List -->
+    <record id="view_elks_timecard_list" model="ir.ui.view">
+        <field name="name">elks.timecard.list</field>
+        <field name="model">elks.timecard</field>
+        <field name="arch" type="xml">
+            <list string="Timecards" decoration-success="state == 'approved'"
+                  decoration-info="state == 'employee_approved'"
+                  decoration-muted="state == 'draft'">
+                <field name="employee_id"/>
+                <field name="period_start"/>
+                <field name="period_end"/>
+                <field name="total_hours" widget="float_time"/>
+                <field name="total_tips" optional="hide"/>
+                <field name="approver_id" optional="show"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'approved'"
+                       decoration-info="state == 'employee_approved'"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Form -->
+    <record id="view_elks_timecard_form" model="ir.ui.view">
+        <field name="name">elks.timecard.form</field>
+        <field name="model">elks.timecard</field>
+        <field name="arch" type="xml">
+            <form string="Timecard">
+                <header>
+                    <button name="action_employee_approve" type="object"
+                            string="Approve (Employee)" class="btn-primary"
+                            invisible="state != 'draft'"/>
+                    <button name="action_approver_approve" type="object"
+                            string="Approve (Supervisor)" class="btn-primary"
+                            invisible="state == 'approved'"/>
+                    <button name="action_reset" type="object"
+                            string="Reopen" class="btn-secondary"
+                            invisible="state == 'draft'"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,employee_approved,approved"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="display_name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="employee_id"/>
+                            <field name="approver_id"/>
+                        </group>
+                        <group>
+                            <field name="period_start"/>
+                            <field name="period_end"/>
+                            <field name="total_hours" widget="float_time"/>
+                            <field name="total_tips"
+                                   invisible="not total_tips"/>
+                        </group>
+                    </group>
+                    <separator string="Shifts"/>
+                    <field name="attendance_ids" readonly="1">
+                        <list>
+                            <field name="check_in"/>
+                            <field name="check_out"/>
+                            <field name="worked_hours" widget="float_time"/>
+                            <field name="x_tip_amount"/>
+                        </list>
+                    </field>
+                    <separator string="Adjustment Requests"
+                               invisible="not adjustment_ids"/>
+                    <field name="adjustment_ids" readonly="1"
+                           invisible="not adjustment_ids">
+                        <list>
+                            <field name="create_date"/>
+                            <field name="attendance_id"/>
+                            <field name="proposed_check_in"/>
+                            <field name="proposed_check_out"/>
+                            <field name="hours_delta"/>
+                            <field name="reason"/>
+                            <field name="state" widget="badge"
+                                   decoration-warning="state == 'suggested'"
+                                   decoration-success="state == 'applied'"/>
+                            <button name="action_apply" type="object"
+                                    string="Apply" icon="fa-check"
+                                    invisible="state != 'suggested'"/>
+                            <button name="action_reject" type="object"
+                                    string="Reject" icon="fa-times"
+                                    invisible="state != 'suggested'"/>
+                        </list>
+                    </field>
+                    <separator string="Signatures"/>
+                    <group>
+                        <group string="Employee">
+                            <field name="employee_signed_name" readonly="1"/>
+                            <field name="employee_signed_date" readonly="1"/>
+                        </group>
+                        <group string="Supervisor">
+                            <field name="approver_signed_name" readonly="1"/>
+                            <field name="approver_signed_date" readonly="1"/>
+                        </group>
+                    </group>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_elks_timecard_search" model="ir.ui.view">
+        <field name="name">elks.timecard.search</field>
+        <field name="model">elks.timecard</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="employee_id"/>
+                <field name="approver_id"/>
+                <filter name="f_draft" string="Awaiting Employee"
+                        domain="[('state', '=', 'draft')]"/>
+                <filter name="f_emp_appr" string="Employee Approved"
+                        domain="[('state', '=', 'employee_approved')]"/>
+                <filter name="f_approved" string="Approved"
+                        domain="[('state', '=', 'approved')]"/>
+                <separator/>
+                <filter name="g_employee" string="Employee"
+                        context="{'group_by': 'employee_id'}"/>
+                <filter name="g_state" string="Status"
+                        context="{'group_by': 'state'}"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_elks_timecard" model="ir.actions.act_window">
+        <field name="name">Employee Timecards</field>
+        <field name="res_model">elks.timecard</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_elks_timecard_search"/>
+    </record>
+
+    <menuitem id="menu_elks_timecard"
+              name="Timecard Approvals"
+              parent="hr_attendance.menu_hr_attendance_root"
+              action="action_elks_timecard"
+              sequence="35"/>
+
+    <!-- Adjustment requests -->
+    <record id="view_elks_timecard_adjustment_list" model="ir.ui.view">
+        <field name="name">elks.timecard.adjustment.list</field>
+        <field name="model">elks.timecard.adjustment</field>
+        <field name="arch" type="xml">
+            <list string="Adjustment Requests"
+                  decoration-warning="state == 'suggested'"
+                  decoration-muted="state == 'rejected'">
+                <field name="create_date"/>
+                <field name="employee_id"/>
+                <field name="attendance_id"/>
+                <field name="proposed_check_in"/>
+                <field name="proposed_check_out"/>
+                <field name="hours_delta"/>
+                <field name="requested_by"/>
+                <field name="state" widget="badge"
+                       decoration-warning="state == 'suggested'"
+                       decoration-success="state == 'applied'"/>
+                <button name="action_apply" type="object" string="Apply"
+                        icon="fa-check" invisible="state != 'suggested'"/>
+                <button name="action_reject" type="object" string="Reject"
+                        icon="fa-times" invisible="state != 'suggested'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_elks_timecard_adjustment_form" model="ir.ui.view">
+        <field name="name">elks.timecard.adjustment.form</field>
+        <field name="model">elks.timecard.adjustment</field>
+        <field name="arch" type="xml">
+            <form string="Adjustment Request">
+                <header>
+                    <button name="action_apply" type="object" string="Apply"
+                            class="btn-primary" invisible="state != 'suggested'"/>
+                    <button name="action_reject" type="object" string="Reject"
+                            invisible="state != 'suggested'"/>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="timecard_id"/>
+                            <field name="employee_id"/>
+                            <field name="attendance_id"/>
+                            <field name="requested_by"/>
+                        </group>
+                        <group>
+                            <field name="current_check_in"/>
+                            <field name="current_check_out"/>
+                            <field name="proposed_check_in"/>
+                            <field name="proposed_check_out"/>
+                            <field name="hours_delta"/>
+                        </group>
+                    </group>
+                    <separator string="Reason"/>
+                    <field name="reason"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_elks_timecard_adjustment" model="ir.actions.act_window">
+        <field name="name">Adjustment Requests</field>
+        <field name="res_model">elks.timecard.adjustment</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'search_default_suggested': 1}</field>
+    </record>
+
+    <record id="view_elks_timecard_adjustment_search" model="ir.ui.view">
+        <field name="name">elks.timecard.adjustment.search</field>
+        <field name="model">elks.timecard.adjustment</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="employee_id"/>
+                <filter name="suggested" string="Requested"
+                        domain="[('state', '=', 'suggested')]"/>
+                <filter name="applied" string="Applied"
+                        domain="[('state', '=', 'applied')]"/>
+            </search>
+        </field>
+    </record>
+
+    <menuitem id="menu_elks_timecard_adjustment"
+              name="Adjustment Requests"
+              parent="hr_attendance.menu_hr_attendance_root"
+              action="action_elks_timecard_adjustment"
+              sequence="36"/>
+
+</odoo>

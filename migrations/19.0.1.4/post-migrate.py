@@ -1,4 +1,12 @@
 # -*- coding: utf-8 -*-
+# ============================================================================
+# === HUMAN ===
+# A one-time data fix that runs automatically when the module is upgraded to
+# this version (see the folder name). The docstring below says what it fixes.
+# === AI AGENT ===
+# Odoo migration: def migrate(cr, version). pre-/post- by filename. Runs only
+# when upgrading ACROSS this version. Idempotent-safe. Uses raw cr or a sudo env.
+# ============================================================================
 """19.0.1.4 — Recompute worked_hours on every existing attendance.
 
 Up to 19.0.1.3 we used Odoo core's worked_hours computation, which

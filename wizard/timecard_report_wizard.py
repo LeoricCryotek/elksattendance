@@ -1,4 +1,19 @@
 # -*- coding: utf-8 -*-
+# =============================================================================
+# === HUMAN ===
+# The "Payroll Timecards" report tool: pick employees and a pay period (or a
+# custom range), step backward/forward through periods, and print a PDF or
+# export a QuickBooks-ready CSV. It's also the engine the automatic emails use
+# to build each PDF.
+#
+# === AI AGENT ===
+# TransientModel elks.timecard.report.wizard. _get_attendance_data() is the
+# shared fetch (reuses the same Volunteers + charity exclusion as the rest of
+# the module) and the QWeb report (report/timecard_report.xml) calls it again
+# at render time. timecard_cron._generate_timecard_pdf creates this wizard
+# programmatically per employee. Pay periods are semi-monthly; CSV format is
+# tuned for QuickBooks import.
+# =============================================================================
 """Timecard Report Wizard.
 
 Lets the user pick one or more employees and a date range, then
@@ -28,6 +43,13 @@ MONTH_CHOICES = [
 ]
 
 
+# === HUMAN ===
+# The report wizard form: which employees, which pay period, and the buttons to
+# preview/download/export.
+# === AI AGENT ===
+# Transient (no table). employee_ids empty = all paid staff with hours. The
+# pay_period/month/year fields drive date_from/date_to via onchange; 'custom'
+# unlocks free date entry. period navigation re-opens the same transient record.
 class ElksTimecardReportWizard(models.TransientModel):
     _name = "elks.timecard.report.wizard"
     _description = "Timecard Report Wizard"
@@ -78,6 +100,10 @@ class ElksTimecardReportWizard(models.TransientModel):
 
     # ------------------------------------------------------------------
     # Defaults
+    # === HUMAN ===
+    # Opens the wizard already pointed at the current half-month.
+    # === AI AGENT ===
+    # day <= 15 -> first half, else second half. Used as field defaults.
     # ------------------------------------------------------------------
     @api.model
     def _default_pay_period(self):
@@ -101,6 +127,10 @@ class ElksTimecardReportWizard(models.TransientModel):
 
     # ------------------------------------------------------------------
     # Computed
+    # === HUMAN ===
+    # The human-readable label of the selected period shown on the form.
+    # === AI AGENT ===
+    # Display-only; doesn't affect the query (date_from/date_to do).
     # ------------------------------------------------------------------
     @api.depends('pay_period', 'period_month', 'period_year', 'date_from', 'date_to')
     def _compute_period_display(self):
@@ -123,6 +153,11 @@ class ElksTimecardReportWizard(models.TransientModel):
 
     # ------------------------------------------------------------------
     # Onchange: recalculate dates when period/month/year changes
+    # === HUMAN ===
+    # Keeps the From/To dates in sync when you change the period or month/year.
+    # === AI AGENT ===
+    # No-op for 'custom' (dates entered by hand). Also called explicitly from the
+    # navigation buttons after they shift the period.
     # ------------------------------------------------------------------
     @api.onchange('pay_period', 'period_month', 'period_year')
     def _onchange_period(self):
@@ -142,6 +177,13 @@ class ElksTimecardReportWizard(models.TransientModel):
 
     # ------------------------------------------------------------------
     # Period navigation buttons
+    # === HUMAN ===
+    # The ◀ / ▶ buttons that jump to the previous/next pay period, plus a date
+    # sanity check.
+    # === AI AGENT ===
+    # _reopen() returns an act_window to the SAME transient record so the wizard
+    # stays open as you page. Custom range shifts by its own length. _check_dates
+    # is a constraint (from <= to).
     # ------------------------------------------------------------------
     def action_previous_period(self):
         """Jump to the previous pay period."""
@@ -209,6 +251,13 @@ class ElksTimecardReportWizard(models.TransientModel):
 
     # ------------------------------------------------------------------
     # Shared: fetch and organize attendance data
+    # === HUMAN ===
+    # Pulls the period's shifts grouped by employee, warns about anyone with no
+    # hours, and provides the date/time/hours formatting helpers.
+    # === AI AGENT ===
+    # THE data source for both the PDF (QWeb calls it again) and the CSV. Same
+    # exclusions as cron._payroll_domain (Volunteers + x_charity_task_id). Raises
+    # UserError when the period is empty. _format_* convert to user tz / HH:MM.
     # ------------------------------------------------------------------
     def _get_attendance_data(self):
         """Return attendance records grouped by employee.
@@ -314,6 +363,11 @@ class ElksTimecardReportWizard(models.TransientModel):
 
     # ------------------------------------------------------------------
     # PDF Report
+    # === HUMAN ===
+    # Preview on screen, or download the PDF (one page per employee).
+    # === AI AGENT ===
+    # Both call _get_attendance_data first (so an empty period errors before the
+    # report engine runs), then hand off to the matching ir.actions.report.
     # ------------------------------------------------------------------
     def action_print_pdf(self):
         """Preview the timecard report (HTML)."""
@@ -333,6 +387,13 @@ class ElksTimecardReportWizard(models.TransientModel):
 
     # ------------------------------------------------------------------
     # CSV Export
+    # === HUMAN ===
+    # Builds a QuickBooks-friendly CSV of the period (per shift + per-employee
+    # totals) and stashes it on the wizard for download.
+    # === AI AGENT ===
+    # Writes base64 to csv_file and re-opens the wizard so the binary field's
+    # download widget appears. Column layout is tuned for QuickBooks timecard
+    # import — changing it affects that import.
     # ------------------------------------------------------------------
     def action_export_csv(self):
         """Generate a QuickBooks-compatible CSV timecard file."""

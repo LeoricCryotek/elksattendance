@@ -1,0 +1,575 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- =====================================================================
+         === HUMAN ===
+         All the member-portal pages: the Timecards / Timecard Approvals home
+         cards, the current-period and single-timecard pages, the per-shift view
+         with the adjustment-request form and chatter, and the approver page
+         grouped by area. The login-only screens that pair with portal.py.
+         === AI AGENT ===
+         QWeb website templates (t-call portal.portal_layout / portal_table /
+         portal_searchbar). Reusable sub-templates: portal_timecard_shift_table,
+         portal_timecard_signatures, portal_timecard_badge, portal_timecard_adjustments.
+         Forms POST to the controller routes in controllers/portal.py and carry a
+         csrf_token. The chatter is a custom login-only form (NOT portal.message_thread)
+         posting public comments. is_owner/is_approver come from the controller.
+         ===================================================================== -->
+
+    <!-- ============================================================
+         Portal home: add a "Timecards" card
+         ============================================================ -->
+    <template id="portal_my_home_timecard" name="Portal My Home : Timecards"
+              inherit_id="portal.portal_my_home" priority="40">
+        <xpath expr="//div[hasclass('o_portal_docs')]" position="inside">
+            <t t-call="portal.portal_docs_entry">
+                <t t-set="icon" t-value="'/elksattendance/static/src/img/timecard_icon.svg'"/>
+                <t t-set="title">Timecards</t>
+                <t t-set="url" t-value="'/my/timecards'"/>
+                <t t-set="text">Review and approve your timecards</t>
+                <t t-set="config_card" t-value="True"/>
+                <t t-set="placeholder_count" t-value="'timecard_count'"/>
+            </t>
+            <t t-call="portal.portal_docs_entry">
+                <t t-set="icon" t-value="'/elksattendance/static/src/img/timecard_icon.svg'"/>
+                <t t-set="title">Timecard Approvals</t>
+                <t t-set="url" t-value="'/my/timecard-approvals'"/>
+                <t t-set="text">Approve your team's timecards by area</t>
+                <t t-set="config_card" t-value="True"/>
+                <t t-set="placeholder_count" t-value="'timecard_approval_count'"/>
+            </t>
+        </xpath>
+    </template>
+
+    <!-- ============================================================
+         Reusable: one period's shift table
+         ============================================================ -->
+    <template id="portal_timecard_shift_table" name="Timecard Shift Table">
+        <div class="table-responsive">
+            <table class="table table-sm mb-0">
+                <thead>
+                    <tr class="active">
+                        <th>Date</th>
+                        <th>Day</th>
+                        <th>Check In</th>
+                        <th>Check Out</th>
+                        <th class="text-end">Hours</th>
+                        <th t-if="tc.employee_id.x_receives_tips"
+                            class="text-end">Tips</th>
+                        <th t-if="show_line_actions"/>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr t-foreach="tc.attendance_ids" t-as="att">
+                        <td><span t-field="att.check_in"
+                                  t-options='{"format": "MM/dd/yyyy"}'/></td>
+                        <td><span t-field="att.check_in"
+                                  t-options='{"format": "EEE"}'/></td>
+                        <td><span t-field="att.check_in"
+                                  t-options='{"format": "hh:mm a"}'/></td>
+                        <td>
+                            <span t-if="att.check_out" t-field="att.check_out"
+                                  t-options='{"format": "hh:mm a"}'/>
+                            <span t-else="" class="text-danger">OPEN</span>
+                        </td>
+                        <td class="text-end"
+                            t-esc="'%d:%02d' % (int(att.worked_hours), int(round((att.worked_hours - int(att.worked_hours)) * 60)))"/>
+                        <td t-if="tc.employee_id.x_receives_tips" class="text-end"
+                            t-esc="'$%.2f' % (att.x_tip_amount or 0.0)"/>
+                        <td t-if="show_line_actions" class="text-end">
+                            <a t-attf-href="/my/timecard/#{tc.id}/line/#{att.id}"
+                               class="btn btn-sm btn-outline-secondary">View</a>
+                        </td>
+                    </tr>
+                    <tr t-if="not tc.attendance_ids">
+                        <td colspan="6" class="text-muted text-center">
+                            No hours recorded for this period yet.
+                        </td>
+                    </tr>
+                </tbody>
+                <tfoot t-if="tc.attendance_ids">
+                    <tr class="fw-bold">
+                        <td colspan="4" class="text-end">Period Total:</td>
+                        <td class="text-end"
+                            t-esc="'%d:%02d' % (int(tc.total_hours), int(round((tc.total_hours - int(tc.total_hours)) * 60)))"/>
+                        <td t-if="tc.employee_id.x_receives_tips" class="text-end"
+                            t-esc="'$%.2f' % tc.total_tips"/>
+                        <td t-if="show_line_actions"/>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </template>
+
+    <!-- ============================================================
+         Reusable: signature / approval block
+         ============================================================ -->
+    <template id="portal_timecard_signatures" name="Timecard Signatures">
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card mb-2">
+                    <div class="card-body py-2">
+                        <h6 class="card-title mb-1">Employee Approval</h6>
+                        <p t-if="tc.employee_signed_name" class="mb-0">
+                            Signed by <strong t-esc="tc.employee_signed_name"/><br/>
+                            <small class="text-muted">
+                                <span t-field="tc.employee_signed_date"
+                                      t-options='{"format": "MM/dd/yyyy hh:mm a"}'/>
+                            </small>
+                        </p>
+                        <p t-else="" class="text-muted mb-0">Not yet approved.</p>
+                        <form t-if="is_owner and tc.state == 'draft'"
+                              t-attf-action="/my/timecard/#{tc.id}/approve"
+                              method="post" class="mt-2">
+                            <input type="hidden" name="csrf_token"
+                                   t-att-value="request.csrf_token()"/>
+                            <button type="submit" class="btn btn-primary btn-sm">
+                                I approve my timecard
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card mb-2">
+                    <div class="card-body py-2">
+                        <h6 class="card-title mb-1">Supervisor Approval</h6>
+                        <p t-if="tc.approver_signed_name" class="mb-0">
+                            Signed by <strong t-esc="tc.approver_signed_name"/><br/>
+                            <small class="text-muted">
+                                <span t-field="tc.approver_signed_date"
+                                      t-options='{"format": "MM/dd/yyyy hh:mm a"}'/>
+                            </small>
+                        </p>
+                        <p t-else="" class="text-muted mb-0">Not yet approved.</p>
+                        <form t-if="is_approver and tc.state != 'approved'"
+                              t-attf-action="/my/timecard/#{tc.id}/approve"
+                              method="post" class="mt-2">
+                            <input type="hidden" name="csrf_token"
+                                   t-att-value="request.csrf_token()"/>
+                            <p t-if="tc.state == 'draft'"
+                               class="text-muted small mb-1">
+                                The employee hasn't approved yet. You can
+                                approve on their behalf as supervisor.
+                            </p>
+                            <button type="submit"
+                                    t-attf-class="btn btn-sm #{'btn-warning' if tc.state == 'draft' else 'btn-success'}">
+                                <t t-if="tc.state == 'draft'">Approve as supervisor (override)</t>
+                                <t t-else="">Approve as supervisor</t>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- Status badge helper -->
+    <template id="portal_timecard_badge" name="Timecard Badge">
+        <span t-if="tc.state == 'draft'"
+              class="badge rounded-pill text-bg-secondary">Awaiting approval</span>
+        <span t-elif="tc.state == 'employee_approved'"
+              class="badge rounded-pill text-bg-info">Employee approved</span>
+        <span t-else="" class="badge rounded-pill text-bg-success">Approved</span>
+    </template>
+
+    <!-- ============================================================
+         Main page: current period + searchable past periods
+         ============================================================ -->
+    <template id="portal_my_timecards" name="My Timecards">
+        <t t-call="portal.portal_layout">
+
+            <!-- ===== Current pay period (broken out by day) =====
+                 One card per employee record (a person can hold several —
+                 e.g. Kitchen, Bar, Board — sharing one Work Contact). -->
+            <t t-if="current">
+                <h4 class="mt-3 mb-2">Current Pay Period
+                    <small class="text-muted">
+                        (<span t-field="current[0].period_start"
+                               t-options='{"format": "MM/dd/yyyy"}'/>
+                        –
+                        <span t-field="current[0].period_end"
+                              t-options='{"format": "MM/dd/yyyy"}'/>)
+                    </small>
+                </h4>
+            </t>
+            <t t-foreach="current" t-as="tc">
+                <t t-set="is_owner" t-value="tc._elks_is_owner_for(user)"/>
+                <t t-set="is_approver" t-value="tc._elks_is_approver_for(user)"/>
+                <div class="d-flex justify-content-between align-items-center mt-3 mb-2">
+                    <h5 class="mb-0">
+                        <span t-esc="tc.employee_id.name"/>
+                        <span t-if="tc.employee_id.department_id"
+                              class="badge text-bg-light ms-1"
+                              t-esc="tc.employee_id.department_id.name"/>
+                    </h5>
+                    <t t-call="elksattendance.portal_timecard_badge"/>
+                </div>
+                <div class="alert alert-warning py-2" role="alert"
+                     t-if="tc.state == 'draft' and is_owner">
+                    Please review and approve. You will be paid based on this
+                    timecard if no additional time is logged prior to payroll
+                    processing.
+                </div>
+                <t t-set="show_line_actions" t-value="is_owner"/>
+                <div class="card mb-3">
+                    <t t-call="elksattendance.portal_timecard_shift_table"/>
+                </div>
+                <t t-set="show_line_actions" t-value="False"/>
+                <t t-call="elksattendance.portal_timecard_signatures"/>
+            </t>
+
+            <!-- ===== Past pay periods (collapsed + searchable) ===== -->
+            <hr class="mt-4 mb-0" style="border-top: 2px solid #003366;"/>
+            <div class="mt-3">
+                <t t-call="portal.portal_searchbar">
+                    <t t-set="title">Past Pay Periods</t>
+                </t>
+            </div>
+            <t t-if="not past">
+                <div class="alert alert-info" role="alert">
+                    No past pay periods for this filter.
+                </div>
+            </t>
+            <t t-if="past" t-call="portal.portal_table">
+                <thead>
+                    <tr class="active">
+                        <th>Pay Period</th>
+                        <th>Area</th>
+                        <th class="text-end">Hours</th>
+                        <th t-if="show_tips" class="text-end">Tips</th>
+                        <th class="text-center">Status</th>
+                        <th/>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr t-foreach="past" t-as="tc">
+                        <td>
+                            <span t-field="tc.period_start"
+                                  t-options='{"format": "MM/dd/yyyy"}'/>
+                            –
+                            <span t-field="tc.period_end"
+                                  t-options='{"format": "MM/dd/yyyy"}'/>
+                        </td>
+                        <td>
+                            <span t-esc="tc.employee_id.department_id.name or ''"/>
+                        </td>
+                        <td class="text-end"
+                            t-esc="'%d:%02d' % (int(tc.total_hours), int(round((tc.total_hours - int(tc.total_hours)) * 60)))"/>
+                        <td t-if="show_tips" class="text-end"
+                            t-esc="('$%.2f' % tc.total_tips) if tc.employee_id.x_receives_tips else ''"/>
+                        <td class="text-center">
+                            <t t-call="elksattendance.portal_timecard_badge"/>
+                        </td>
+                        <td class="text-end">
+                            <a t-attf-href="/my/timecard/#{tc.id}"
+                               class="btn btn-sm btn-outline-secondary">View</a>
+                        </td>
+                    </tr>
+                </tbody>
+            </t>
+        </t>
+    </template>
+
+    <!-- ============================================================
+         Single timecard detail (email link / "View")
+         ============================================================ -->
+    <template id="portal_timecard_page" name="Timecard">
+        <t t-call="portal.portal_layout">
+            <t t-set="tc" t-value="timecard"/>
+            <t t-set="is_owner" t-value="timecard._elks_is_owner_for(user)"/>
+            <t t-set="is_approver" t-value="timecard._elks_is_approver_for(user)"/>
+
+            <div class="d-flex justify-content-between align-items-center mt-3 mb-2">
+                <h4 class="mb-0">
+                    Timecard —
+                    <span t-field="timecard.period_start"
+                          t-options='{"format": "MM/dd/yyyy"}'/>
+                    to
+                    <span t-field="timecard.period_end"
+                          t-options='{"format": "MM/dd/yyyy"}'/>
+                    <br/>
+                    <small class="text-muted" t-esc="timecard.employee_id.name"/>
+                </h4>
+                <t t-call="elksattendance.portal_timecard_badge"/>
+            </div>
+
+            <t t-set="show_line_actions" t-value="is_owner"/>
+            <div class="card mb-3">
+                <t t-call="elksattendance.portal_timecard_shift_table"/>
+            </div>
+            <t t-set="show_line_actions" t-value="False"/>
+            <t t-call="elksattendance.portal_timecard_signatures"/>
+
+            <!-- Adjustment requests for the whole period -->
+            <t t-if="timecard.adjustment_ids">
+                <h5 class="mt-4">Adjustment Requests</h5>
+                <t t-call="elksattendance.portal_timecard_adjustments">
+                    <t t-set="adjustments" t-value="timecard.adjustment_ids"/>
+                    <t t-set="can_decide" t-value="is_approver"/>
+                </t>
+            </t>
+
+            <!-- Discussion / change-request chatter (login-only) -->
+            <h5 class="mt-4">Messages</h5>
+            <form method="post" class="mb-3"
+                  t-attf-action="/my/timecard/#{timecard.id}/message">
+                <input type="hidden" name="csrf_token"
+                       t-att-value="request.csrf_token()"/>
+                <textarea name="body" rows="2" class="form-control mb-2"
+                          placeholder="Add a message about this timecard..."/>
+                <button type="submit" class="btn btn-secondary btn-sm">Send message</button>
+            </form>
+            <t t-if="not card_messages">
+                <p class="text-muted">No messages yet.</p>
+            </t>
+            <div t-foreach="card_messages" t-as="msg" class="border-bottom py-2">
+                <div>
+                    <strong t-esc="msg.author_id.name or msg.email_from or 'System'"/>
+                    <small class="text-muted ms-2">
+                        <span t-field="msg.date"
+                              t-options='{"format": "MM/dd/yyyy hh:mm a"}'/>
+                    </small>
+                </div>
+                <div t-out="msg.body"/>
+            </div>
+        </t>
+    </template>
+
+    <!-- Reusable: a table of adjustment requests (+ apply/reject) -->
+    <template id="portal_timecard_adjustments" name="Timecard Adjustments">
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <thead>
+                    <tr class="active">
+                        <th>Requested</th>
+                        <th>Proposed In</th>
+                        <th>Proposed Out</th>
+                        <th class="text-end">Change</th>
+                        <th>Reason</th>
+                        <th class="text-center">Status</th>
+                        <th t-if="can_decide"/>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr t-foreach="adjustments" t-as="adj">
+                        <td><span t-field="adj.create_date"
+                                  t-options='{"format": "MM/dd/yyyy"}'/></td>
+                        <td><span t-if="adj.proposed_check_in"
+                                  t-field="adj.proposed_check_in"
+                                  t-options='{"format": "MM/dd hh:mm a"}'/></td>
+                        <td><span t-if="adj.proposed_check_out"
+                                  t-field="adj.proposed_check_out"
+                                  t-options='{"format": "MM/dd hh:mm a"}'/></td>
+                        <td class="text-end"
+                            t-esc="('%+.2f' % adj.hours_delta) + ' h'"/>
+                        <td><span t-esc="adj.reason"/></td>
+                        <td class="text-center">
+                            <span t-if="adj.state == 'suggested'"
+                                  class="badge text-bg-warning">Requested</span>
+                            <span t-elif="adj.state == 'applied'"
+                                  class="badge text-bg-success">Applied</span>
+                            <span t-else="" class="badge text-bg-secondary">Rejected</span>
+                        </td>
+                        <td t-if="can_decide" class="text-end">
+                            <t t-if="adj.state == 'suggested'">
+                                <form method="post" class="d-inline"
+                                      t-attf-action="/my/timecard/#{adj.timecard_id.id}/adjustment/#{adj.id}/apply">
+                                    <input type="hidden" name="csrf_token"
+                                           t-att-value="request.csrf_token()"/>
+                                    <button type="submit"
+                                            class="btn btn-sm btn-success">Apply</button>
+                                </form>
+                                <form method="post" class="d-inline ms-1"
+                                      t-attf-action="/my/timecard/#{adj.timecard_id.id}/adjustment/#{adj.id}/reject">
+                                    <input type="hidden" name="csrf_token"
+                                           t-att-value="request.csrf_token()"/>
+                                    <button type="submit"
+                                            class="btn btn-sm btn-outline-secondary">Reject</button>
+                                </form>
+                            </t>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </template>
+
+    <!-- ============================================================
+         Per-line view + adjustment suggestion form
+         ============================================================ -->
+    <template id="portal_timecard_line" name="Timecard Line">
+        <t t-call="portal.portal_layout">
+            <t t-set="tc" t-value="timecard"/>
+            <h4 class="mt-3">Shift Detail</h4>
+            <table class="table table-sm">
+                <tr><th>Employee</th><td t-esc="timecard.employee_id.name"/></tr>
+                <tr><th>Date</th>
+                    <td><span t-field="att.check_in"
+                              t-options='{"format": "EEEE, MM/dd/yyyy"}'/></td></tr>
+                <tr><th>Check In</th>
+                    <td><span t-field="att.check_in"
+                              t-options='{"format": "hh:mm a"}'/></td></tr>
+                <tr><th>Check Out</th>
+                    <td>
+                        <span t-if="att.check_out" t-field="att.check_out"
+                              t-options='{"format": "hh:mm a"}'/>
+                        <span t-else="" class="text-danger">OPEN</span>
+                    </td></tr>
+                <tr><th>Hours</th>
+                    <td t-esc="'%d:%02d' % (int(att.worked_hours), int(round((att.worked_hours - int(att.worked_hours)) * 60)))"/></tr>
+            </table>
+
+            <t t-if="can_request">
+                <h5 class="mt-4">Request an Adjustment</h5>
+                <p class="text-muted">
+                    Suggest corrected times. Your request is sent to your
+                    supervisor to apply — your recorded punch isn't changed
+                    until they approve it.
+                </p>
+                <div t-if="error == 'empty'" class="alert alert-warning" role="alert">
+                    Please change a time or add a reason — there was nothing to submit.
+                </div>
+                <form method="post" class="row g-3"
+                      t-attf-action="/my/timecard/#{timecard.id}/line/#{att.id}/suggest">
+                    <input type="hidden" name="csrf_token"
+                           t-att-value="request.csrf_token()"/>
+                    <div class="col-md-4">
+                        <label class="form-label">Proposed Check In</label>
+                        <input type="datetime-local" name="proposed_check_in"
+                               class="form-control" t-att-value="in_value"/>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Proposed Check Out</label>
+                        <input type="datetime-local" name="proposed_check_out"
+                               class="form-control" t-att-value="out_value"/>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Reason</label>
+                        <textarea name="reason" rows="2" class="form-control"
+                                  placeholder="Explain the correction..."/>
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary">
+                            Submit request
+                        </button>
+                        <a t-attf-href="/my/timecard/#{timecard.id}"
+                           class="btn btn-link">Back to timecard</a>
+                    </div>
+                </form>
+            </t>
+            <div t-elif="timecard.state != 'draft'" class="alert alert-secondary mt-4" role="alert">
+                This pay period is already approved, so adjustment requests are closed.
+                Contact your supervisor if a correction is still needed.
+            </div>
+
+            <t t-if="suggestions">
+                <h5 class="mt-4">Requests for this shift</h5>
+                <t t-call="elksattendance.portal_timecard_adjustments">
+                    <t t-set="adjustments" t-value="suggestions"/>
+                    <t t-set="can_decide" t-value="False"/>
+                </t>
+            </t>
+
+            <!-- Per-line discussion (tied to the backend attendance chatter) -->
+            <h5 class="mt-4">Discussion</h5>
+            <form method="post" class="mb-3"
+                  t-attf-action="/my/timecard/#{timecard.id}/line/#{att.id}/message">
+                <input type="hidden" name="csrf_token"
+                       t-att-value="request.csrf_token()"/>
+                <textarea name="body" rows="2" class="form-control mb-2"
+                          placeholder="Add a message about this shift..."/>
+                <button type="submit" class="btn btn-secondary btn-sm">Send message</button>
+            </form>
+            <t t-if="not line_messages">
+                <p class="text-muted">No messages yet.</p>
+            </t>
+            <div t-foreach="line_messages" t-as="msg" class="border-bottom py-2">
+                <div>
+                    <strong t-esc="msg.author_id.name or msg.email_from or 'System'"/>
+                    <small class="text-muted ms-2">
+                        <span t-field="msg.date"
+                              t-options='{"format": "MM/dd/yyyy hh:mm a"}'/>
+                    </small>
+                </div>
+                <div t-out="msg.body"/>
+            </div>
+        </t>
+    </template>
+
+    <!-- ============================================================
+         Approver workflow: timecards I can approve, grouped by area
+         ============================================================ -->
+    <template id="portal_timecard_approvals" name="Timecard Approvals">
+        <t t-call="portal.portal_layout">
+            <div class="mt-3">
+                <t t-call="portal.portal_searchbar">
+                    <t t-set="title">Timecard Approvals</t>
+                </t>
+            </div>
+            <t t-if="not groups">
+                <div class="alert alert-info" role="alert">
+                    Nothing to approve for this filter.
+                </div>
+            </t>
+            <t t-foreach="groups.items()" t-as="group">
+                <h5 class="mt-3 text-primary" t-esc="group[0]"/>
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr class="active">
+                                <th>Employee</th>
+                                <th>Pay Period</th>
+                                <th class="text-end">Hours</th>
+                                <th class="text-center">Suggestions</th>
+                                <th class="text-center">Status</th>
+                                <th/>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr t-foreach="group[1]" t-as="tc">
+                                <td t-esc="tc.employee_id.name"/>
+                                <td>
+                                    <span t-field="tc.period_start"
+                                          t-options='{"format": "MM/dd/yyyy"}'/>
+                                    –
+                                    <span t-field="tc.period_end"
+                                          t-options='{"format": "MM/dd/yyyy"}'/>
+                                </td>
+                                <td class="text-end"
+                                    t-esc="'%d:%02d' % (int(tc.total_hours), int(round((tc.total_hours - int(tc.total_hours)) * 60)))"/>
+                                <td class="text-center">
+                                    <span t-if="tc.pending_adjustment_count"
+                                          class="badge text-bg-warning"
+                                          t-esc="tc.pending_adjustment_count"/>
+                                </td>
+                                <td class="text-center">
+                                    <t t-call="elksattendance.portal_timecard_badge"/>
+                                </td>
+                                <td class="text-end">
+                                    <a t-attf-href="/my/timecard/#{tc.id}"
+                                       class="btn btn-sm btn-outline-secondary">View</a>
+                                    <form t-if="tc.state != 'approved'"
+                                          method="post" class="d-inline ms-1"
+                                          t-attf-action="/my/timecard/#{tc.id}/approve">
+                                        <input type="hidden" name="csrf_token"
+                                               t-att-value="request.csrf_token()"/>
+                                        <input type="hidden" name="redirect"
+                                               value="/my/timecard-approvals"/>
+                                        <button type="submit"
+                                                t-attf-class="btn btn-sm #{'btn-warning' if tc.state == 'draft' else 'btn-success'}"
+                                                t-att-title="'Employee has not approved yet — approve as supervisor (override)' if tc.state == 'draft' else 'Approve'">
+                                            <t t-if="tc.state == 'draft'">Approve (override)</t>
+                                            <t t-else="">Approve</t>
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </t>
+        </t>
+    </template>
+
+</odoo>

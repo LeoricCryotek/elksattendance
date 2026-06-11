@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
+    <!-- =====================================================================
+         === HUMAN ===
+         Employee form tweaks: the Receives Tips checkbox plus header buttons to
+         invite the person to the portal and link their role-records to one contact.
+         === AI AGENT ===
+         Inherited view of hr.view_employee_form. Buttons call action_invite_to_portal
+         / action_elks_link_roles on hr.employee. A header is added via xpath.
+         ===================================================================== -->
+
     <!-- Add "Receives Tips" checkbox to the employee form.
          Placed in the HR Settings tab (Work Information). -->
     <record id="view_employee_form_inherit_tips" model="ir.ui.view">
@@ -12,6 +21,14 @@
                 <group string="Tip / Gratuity Tracking">
                     <field name="x_receives_tips"/>
                 </group>
+            </xpath>
+            <!-- Header button to grant the employee a portal login -->
+            <xpath expr="//header" position="inside">
+                <button name="action_invite_to_portal" type="object"
+                        string="Invite to Portal" class="btn-secondary"/>
+                <button name="action_elks_link_roles" type="object"
+                        string="Link Roles to Contact" class="btn-secondary"
+                        help="Share one Work Contact across this person's employee records (Board, Kitchen, Bar…) so one portal login covers them all."/>
             </xpath>
         </field>
     </record>

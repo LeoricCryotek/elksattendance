@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
 
+    <!-- =====================================================================
+         === HUMAN ===
+         The printable payroll timecard slip: lodge header, a shift table per
+         employee, totals, and the digital approval signatures.
+         === AI AGENT ===
+         Two ir.actions.report (html preview + pdf) plus the QWeb template, all on
+         elks.timecard.report.wizard. It re-queries the wizard data and looks up the
+         matching elks.timecard to print signatures. Kept ASCII-only (HTML entities)
+         so wkhtmltopdf does not mojibake.
+         ===================================================================== -->
+
     <record id="action_report_timecard" model="ir.actions.report">
         <field name="name">Employee Timecard</field>
         <field name="model">elks.timecard.report.wizard</field>
@@ -84,7 +95,7 @@
                                                 <strong>Period:</strong>
                                                 <span t-field="wizard.date_from"
                                                       t-options='{"format": "MM/dd/yyyy"}'/>
-                                                —
+                                                &#8212;
                                                 <span t-field="wizard.date_to"
                                                       t-options='{"format": "MM/dd/yyyy"}'/>
                                             </p>
@@ -186,16 +197,36 @@
                                 </tfoot>
                             </table>
 
-                            <!-- Signature line -->
-                            <div style="margin-top:50px;">
-                                <table style="width:100%;">
+                            <!-- Digital approval / signature block -->
+                            <t t-set="tc"
+                               t-value="wizard.env['elks.timecard'].sudo().search([('employee_id', '=', employee.id), ('period_start', '=', wizard.date_from), ('period_end', '=', wizard.date_to)], limit=1)"/>
+                            <div style="margin-top:40px;">
+                                <table style="width:100%; font-size:11px;">
                                     <tr>
                                         <td style="width:50%; border-top:1px solid #333; padding-top:4px;">
-                                            Employee Signature
+                                            <strong>Employee Approval</strong><br/>
+                                            <t t-if="tc and tc.employee_signed_name">
+                                                <span style="color:#060; font-weight:bold;">Approved</span> by
+                                                <span t-esc="tc.employee_signed_name"/><br/>
+                                                <span t-esc="tc.employee_signed_date"
+                                                      t-options='{"widget": "datetime", "format": "MM/dd/yyyy hh:mm a"}'/>
+                                            </t>
+                                            <t t-else="">
+                                                <span style="color:#999;">Signature: ____________________</span>
+                                            </t>
                                         </td>
                                         <td style="width:10%;"/>
                                         <td style="width:40%; border-top:1px solid #333; padding-top:4px;">
-                                            Supervisor / Date
+                                            <strong>Supervisor Approval</strong><br/>
+                                            <t t-if="tc and tc.approver_signed_name">
+                                                <span style="color:#060; font-weight:bold;">Approved</span> by
+                                                <span t-esc="tc.approver_signed_name"/><br/>
+                                                <span t-esc="tc.approver_signed_date"
+                                                      t-options='{"widget": "datetime", "format": "MM/dd/yyyy hh:mm a"}'/>
+                                            </t>
+                                            <t t-else="">
+                                                <span style="color:#999;">Signature / Date: ____________</span>
+                                            </t>
                                         </td>
                                     </tr>
                                 </table>
