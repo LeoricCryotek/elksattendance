@@ -59,12 +59,20 @@ class TimecardPortal(CustomerPortal):
     # = what the approver view lists. Both exclude Volunteer-dept cards.
     # ------------------------------------------------------------------
     def _prepare_home_portal_values(self, counters):
+        # NOTE: sudo() on every elks.timecard search below. The domains are
+        # already scoped to the logged-in user's own records (user_id /
+        # work_contact_id / approver_id baked in as literals), so sudo does
+        # NOT widen visibility. It only avoids the implicit read-access check
+        # on hr.employee — which, for a portal user, routes to
+        # hr.employee.public and would otherwise raise a 403 when the domain
+        # joins through employee_id.
         values = super()._prepare_home_portal_values(counters)
+        Timecard = request.env['elks.timecard'].sudo()
         if 'timecard_count' in counters:
-            values['timecard_count'] = request.env['elks.timecard'].search_count(
+            values['timecard_count'] = Timecard.search_count(
                 self._elks_timecard_domain())
         if 'timecard_approval_count' in counters:
-            values['timecard_approval_count'] = request.env['elks.timecard'].search_count(
+            values['timecard_approval_count'] = Timecard.search_count(
                 self._elks_approver_domain())
         return values
 
@@ -114,9 +122,13 @@ class TimecardPortal(CustomerPortal):
     @http.route(['/my/timecards', '/my/timecards/page/<int:page>'],
                 type='http', auth='user', website=True)
     def portal_my_timecards(self, page=1, filterby=None, **kw):
-        Timecard = request.env['elks.timecard']
+        # sudo: the domains are scoped to this user's own records, so sudo
+        # doesn't widen visibility — it avoids the hr.employee(.public) read
+        # check that a portal user fails when the search joins through
+        # employee_id (would otherwise 403).
+        Timecard = request.env['elks.timecard'].sudo()
         # Make sure the current period (and past periods with hours) exist.
-        Timecard.sudo()._elks_ensure_for_user(request.env.user)
+        Timecard._elks_ensure_for_user(request.env.user)
 
         today = fields.Date.context_today(request.env.user)
         base = self._elks_timecard_domain()
@@ -370,10 +382,12 @@ class TimecardPortal(CustomerPortal):
     # ------------------------------------------------------------------
     @http.route(['/my/timecard-approvals'], type='http', auth='user', website=True)
     def portal_timecard_approvals(self, filterby=None, **kw):
-        Timecard = request.env['elks.timecard']
+        # sudo: domain is scoped to approver_id == this user; sudo only avoids
+        # the hr.employee(.public) read check on the employee_id join.
+        Timecard = request.env['elks.timecard'].sudo()
         # Make sure cards exist for everyone this user approves (even if the
         # employee never opened the portal).
-        Timecard.sudo()._elks_ensure_for_approver(request.env.user)
+        Timecard._elks_ensure_for_approver(request.env.user)
         today = fields.Date.context_today(request.env.user)
         base = self._elks_approver_domain()
 
