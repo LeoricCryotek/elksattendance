@@ -77,8 +77,10 @@ class TimecardPortal(CustomerPortal):
         return values
 
     def _elks_approver_domain(self):
-        """Timecards the current user is the Attendance approver for."""
-        return self._ELKS_NOT_VOLUNTEER + [('approver_id', '=', request.env.user.id)]
+        """Timecards the current user is the Attendance approver for (open)."""
+        return self._ELKS_NOT_VOLUNTEER + [
+            ('approver_id', '=', request.env.user.id),
+            ('x_closed', '=', False)]
 
     def _elks_get_timecard(self, timecard_id):
         """Return the timecard ONLY if the logged-in user may access it.
@@ -101,9 +103,15 @@ class TimecardPortal(CustomerPortal):
     _ELKS_NOT_VOLUNTEER = [('employee_id.department_id.name', '!=', 'Volunteers')]
 
     def _elks_timecard_domain(self):
-        """Timecards the current portal user may see: their own / approved."""
+        """Timecards the current portal user may see: their own / approved.
+
+        Excludes closed (archived) periods so old backlog doesn't clutter the
+        employee's history; approved history stays visible (it isn't closed).
+        """
         user = request.env.user
-        return self._ELKS_NOT_VOLUNTEER + ['|', '|',
+        return self._ELKS_NOT_VOLUNTEER + [
+                ('x_closed', '=', False),
+                '|', '|',
                 ('employee_id.user_id', '=', user.id),
                 ('employee_id.work_contact_id', '=', user.partner_id.id),
                 ('approver_id', '=', user.id)]
@@ -392,19 +400,20 @@ class TimecardPortal(CustomerPortal):
         base = self._elks_approver_domain()
 
         this_year = date(today.year, 1, 1)
-        last_year = date(today.year - 1, 1, 1)
+        # Default view = only the pay period that contains today (old periods
+        # are archived by the close cron, so 'All' just shows open history).
         searchbar_filters = {
-            'pending': {'label': _('Needs Approval'),
+            'current': {'label': _('Current Period'),
+                        'domain': [('period_start', '<=', today),
+                                   ('period_end', '>=', today)]},
+            'pending': {'label': _('All Needing Approval'),
                         'domain': [('state', '!=', 'approved')]},
             'this_year': {'label': _('This Year'),
                           'domain': [('period_start', '>=', this_year)]},
-            'last_year': {'label': _('Last Year'),
-                          'domain': [('period_start', '>=', last_year),
-                                     ('period_start', '<', this_year)]},
-            'all': {'label': _('All Time'), 'domain': []},
+            'all': {'label': _('All Open'), 'domain': []},
         }
-        if not filterby:
-            filterby = 'pending'
+        if not filterby or filterby not in searchbar_filters:
+            filterby = 'current'
         domain = base + searchbar_filters[filterby]['domain']
         cards = Timecard.search(domain, order='period_start desc')
 

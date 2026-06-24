@@ -43,9 +43,19 @@
 
     <!-- ============================================================
          Reusable: one period's shift table
+         === HUMAN ===
+         The list of shifts for a period. Renders as a full table on
+         tablet/desktop and as stacked rows on phones, so Hours, Tips, and the
+         View button are always visible (no sideways scrolling on mobile).
+         === AI AGENT ===
+         Two layouts gated by Bootstrap d-none/d-md-* utilities sharing the same
+         data (tc.attendance_ids). Tips column/line is conditional on
+         tc.employee_id.x_receives_tips. The mobile View link is the path to the
+         per-line correction page; keep both layouts in sync when editing.
          ============================================================ -->
     <template id="portal_timecard_shift_table" name="Timecard Shift Table">
-        <div class="table-responsive">
+        <!-- ===== Desktop / tablet: full table ===== -->
+        <div class="table-responsive d-none d-md-block">
             <table class="table table-sm mb-0">
                 <thead>
                     <tr class="active">
@@ -82,7 +92,7 @@
                         </td>
                     </tr>
                     <tr t-if="not tc.attendance_ids">
-                        <td colspan="6" class="text-muted text-center">
+                        <td colspan="7" class="text-muted text-center">
                             No hours recorded for this period yet.
                         </td>
                     </tr>
@@ -98,6 +108,50 @@
                     </tr>
                 </tfoot>
             </table>
+        </div>
+
+        <!-- ===== Phone: stacked rows (Tips + View always visible) ===== -->
+        <div class="d-md-none">
+            <p t-if="not tc.attendance_ids" class="text-muted text-center my-2">
+                No hours recorded for this period yet.
+            </p>
+            <div t-foreach="tc.attendance_ids" t-as="att"
+                 class="border-bottom py-2">
+                <div class="d-flex justify-content-between">
+                    <strong>
+                        <span t-field="att.check_in"
+                              t-options='{"format": "EEE, MM/dd"}'/>
+                    </strong>
+                    <span>
+                        <span class="text-muted small">Hrs </span>
+                        <strong t-esc="'%d:%02d' % (int(att.worked_hours), int(round((att.worked_hours - int(att.worked_hours)) * 60)))"/>
+                    </span>
+                </div>
+                <div class="text-muted small">
+                    <span t-field="att.check_in" t-options='{"format": "hh:mm a"}'/>
+                    &#8594;
+                    <span t-if="att.check_out" t-field="att.check_out"
+                          t-options='{"format": "hh:mm a"}'/>
+                    <span t-else="" class="text-danger">OPEN</span>
+                </div>
+                <div t-if="tc.employee_id.x_receives_tips" class="small">
+                    <span class="text-muted">Tips </span>
+                    <strong t-esc="'$%.2f' % (att.x_tip_amount or 0.0)"/>
+                </div>
+                <a t-if="show_line_actions"
+                   t-attf-href="/my/timecard/#{tc.id}/line/#{att.id}"
+                   class="btn btn-sm btn-outline-secondary mt-1">View / request fix</a>
+            </div>
+            <div t-if="tc.attendance_ids"
+                 class="d-flex justify-content-between fw-bold pt-2">
+                <span>Period Total</span>
+                <span>
+                    <span t-esc="'%d:%02d' % (int(tc.total_hours), int(round((tc.total_hours - int(tc.total_hours)) * 60)))"/>
+                    <t t-if="tc.employee_id.x_receives_tips">
+                        &#160;&#183;&#160;<span t-esc="'$%.2f' % tc.total_tips"/> tips
+                    </t>
+                </span>
+            </div>
         </div>
     </template>
 
@@ -418,6 +472,9 @@
                     </td></tr>
                 <tr><th>Hours</th>
                     <td t-esc="'%d:%02d' % (int(att.worked_hours), int(round((att.worked_hours - int(att.worked_hours)) * 60)))"/></tr>
+                <tr t-if="timecard.employee_id.x_receives_tips">
+                    <th>Tips</th>
+                    <td t-esc="'$%.2f' % (att.x_tip_amount or 0.0)"/></tr>
             </table>
 
             <t t-if="can_request">

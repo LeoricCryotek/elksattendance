@@ -93,6 +93,16 @@ class ElksTimecard(models.Model):
         help="The employee's Attendance approver, who gives the final "
              "sign-off.")
 
+    # === HUMAN ===
+    # "Closed" archives an old period so it stops showing on the approver's
+    # to-do list and the employee's history. Closing never requires approval
+    # and never sends email.
+    # === AI AGENT ===
+    # x_closed is the archive flag (copy=False). Portal domains filter it out;
+    # the reminder cron skips it. Set in bulk by _elks_close_old (cron + the
+    # 19.0.5.0 migration), or per-card via action_close / action_reopen.
+    x_closed = fields.Boolean("Closed", default=False, copy=False, index=True)
+
     adjustment_ids = fields.One2many(
         'elks.timecard.adjustment', 'timecard_id', string="Adjustment Requests")
     pending_adjustment_count = fields.Integer(
@@ -399,6 +409,41 @@ class ElksTimecard(models.Model):
         """Reopen the timecard, clearing all signatures."""
         self._elks_reset_signatures(_("Timecard reopened."))
         return True
+
+    # ------------------------------------------------------------------
+    # Closing old periods (archive — silent, no approval, no email)
+    # === HUMAN ===
+    # Close/reopen a single card by hand, and the bulk job that closes old
+    # periods nobody needs to approve anymore.
+    # === AI AGENT ===
+    # _elks_close_old closes every NON-approved card whose period ended before
+    # the current period starts (approved history is kept). It's intentionally
+    # silent — no message_post, no email. Called by the daily cron and the
+    # 19.0.5.0 migration (the "close pre-existing backlog" cleanup).
+    # ------------------------------------------------------------------
+    def action_close(self):
+        self.write({'x_closed': True})
+        return True
+
+    def action_reopen(self):
+        self.write({'x_closed': False})
+        return True
+
+    @api.model
+    def _elks_close_old(self):
+        """Archive old, non-approved timecards (silent: no email/chatter)."""
+        today = fields.Date.context_today(self)
+        start, _end = self.env['elksattendance.timecard.cron']._get_current_period(
+            today, self._frequency())
+        old = self.sudo().search([
+            ('period_end', '<', start),
+            ('state', '!=', 'approved'),
+            ('x_closed', '=', False),
+        ])
+        if old:
+            old.write({'x_closed': True})
+            _logger.info("elksattendance: closed %d old timecard(s).", len(old))
+        return len(old)
 
     # ------------------------------------------------------------------
     # Notifications, suggestions, and auto-reset

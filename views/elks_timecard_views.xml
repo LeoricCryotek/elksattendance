@@ -17,13 +17,14 @@
         <field name="arch" type="xml">
             <list string="Timecards" decoration-success="state == 'approved'"
                   decoration-info="state == 'employee_approved'"
-                  decoration-muted="state == 'draft'">
+                  decoration-muted="state == 'draft' or x_closed">
                 <field name="employee_id"/>
                 <field name="period_start"/>
                 <field name="period_end"/>
                 <field name="total_hours" widget="float_time"/>
                 <field name="total_tips" optional="hide"/>
                 <field name="approver_id" optional="show"/>
+                <field name="x_closed" optional="show" widget="boolean_toggle"/>
                 <field name="state" widget="badge"
                        decoration-success="state == 'approved'"
                        decoration-info="state == 'employee_approved'"/>
@@ -46,7 +47,14 @@
                             invisible="state == 'approved'"/>
                     <button name="action_reset" type="object"
                             string="Reopen" class="btn-secondary"
-                            invisible="state == 'draft'"/>
+                            invisible="state == 'draft' or x_closed"/>
+                    <button name="action_close" type="object"
+                            string="Close" class="btn-secondary"
+                            invisible="x_closed"/>
+                    <button name="action_reopen" type="object"
+                            string="Reopen (unarchive)" class="btn-secondary"
+                            invisible="not x_closed"/>
+                    <field name="x_closed" invisible="1"/>
                     <field name="state" widget="statusbar"
                            statusbar_visible="draft,employee_approved,approved"/>
                 </header>
@@ -129,6 +137,11 @@
                 <filter name="f_approved" string="Approved"
                         domain="[('state', '=', 'approved')]"/>
                 <separator/>
+                <filter name="f_open" string="Open (not closed)"
+                        domain="[('x_closed', '=', False)]"/>
+                <filter name="f_closed" string="Closed / Archived"
+                        domain="[('x_closed', '=', True)]"/>
+                <separator/>
                 <filter name="g_employee" string="Employee"
                         context="{'group_by': 'employee_id'}"/>
                 <filter name="g_state" string="Status"
@@ -142,6 +155,7 @@
         <field name="res_model">elks.timecard</field>
         <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="view_elks_timecard_search"/>
+        <field name="context">{'search_default_f_open': 1}</field>
     </record>
 
     <menuitem id="menu_elks_timecard"

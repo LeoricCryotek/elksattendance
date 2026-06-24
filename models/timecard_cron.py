@@ -502,6 +502,8 @@ class TimecardCron(models.AbstractModel):
             self._payroll_domain(start, end))
         for emp in attendances.mapped('employee_id'):
             tc = Timecard._get_or_create(emp, start)
+            if tc.x_closed:
+                continue  # closed/archived periods are never reminded
             if tc.state == 'draft' and emp.work_email:
                 self._elks_send_mail(
                     [emp.work_email],
@@ -520,6 +522,19 @@ class TimecardCron(models.AbstractModel):
                         _("%(emp)s is awaiting your final approval; the pay "
                           "period closes %(d)s.", emp=emp.name, d=deadline),
                         tc._elks_portal_url(), _("Review &amp; approve")))
+
+    # ==================================================================
+    # 5. Close old periods (daily cron) — silent archive
+    # === HUMAN ===
+    # Each day, archive old pay periods nobody needs to approve anymore so they
+    # drop off the approver and employee lists. Sends no email.
+    # === AI AGENT ===
+    # Thin wrapper over elks.timecard._elks_close_old (closes non-approved cards
+    # whose period ended before the current one). Approved history is preserved.
+    # ==================================================================
+    @api.model
+    def _cron_close_old_periods(self):
+        self.env['elks.timecard']._elks_close_old()
 
     @api.model
     def _send_long_shift_alert(self, attendance):
