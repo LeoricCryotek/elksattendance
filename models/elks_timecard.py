@@ -35,7 +35,7 @@ The model uses ``portal.mixin`` so each record has a tokenised
 email link.
 """
 import logging
-from datetime import date
+from datetime import date, timedelta
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError, AccessError
@@ -427,10 +427,13 @@ class ElksTimecard(models.Model):
     # Close/reopen a single card by hand, and the bulk job that closes old
     # periods nobody needs to approve anymore.
     # === AI AGENT ===
-    # _elks_close_old closes every NON-approved card whose period ended before
-    # the current period starts (approved history is kept). It's intentionally
-    # silent — no message_post, no email. Called by the daily cron and the
-    # 19.0.5.0 migration (the "close pre-existing backlog" cleanup).
+    # _elks_close_old closes NON-approved cards whose period ended before the
+    # PREVIOUS period began — i.e. it keeps a full period of grace so the current
+    # AND the just-completed period stay visible for approval. (Closing purely by
+    # "< current period start" wrongly archived the just-ended period the instant
+    # the calendar rolled over — a period-boundary/timezone bug fixed in 19.0.5.5;
+    # 19.0.5.5 migration reopens cards that were wrongly closed.) Approved history
+    # is kept. Silent — no message_post, no email. Called by the daily cron.
     # ------------------------------------------------------------------
     def action_close(self):
         self.write({'x_closed': True})
@@ -442,12 +445,22 @@ class ElksTimecard(models.Model):
 
     @api.model
     def _elks_close_old(self):
-        """Archive old, non-approved timecards (silent: no email/chatter)."""
+        """Archive genuinely-old, non-approved timecards (silent: no email).
+
+        Keeps a full period of grace: only closes cards whose period ended
+        before the PREVIOUS period started, so both the current period AND the
+        just-completed period (the one approvers validate at period end) stay
+        visible. Approved cards are kept as history and never closed here.
+        """
+        Cron = self.env['elksattendance.timecard.cron']
+        freq = self._frequency()
         today = fields.Date.context_today(self)
-        start, _end = self.env['elksattendance.timecard.cron']._get_current_period(
-            today, self._frequency())
+        cur_start, _cur_end = Cron._get_current_period(today, freq)
+        # Start of the period BEFORE the current one = the grace boundary.
+        prev_start, _prev_end = Cron._get_current_period(
+            cur_start - timedelta(days=1), freq)
         old = self.sudo().search([
-            ('period_end', '<', start),
+            ('period_end', '<', prev_start),
             ('state', '!=', 'approved'),
             ('x_closed', '=', False),
         ])

@@ -26,9 +26,13 @@
             <field name="priority">45</field>
         </record>
 
-        <!-- Daily: archive old pay periods (period ended before the current
-             one and not approved) so they drop off the approver/employee
-             lists. Silent — sends no email. -->
+        <!-- Archive old pay periods (silent). DISABLED by default: the one-time
+             backlog cleanup is done by the 19.0.5.0 migration, and the approver
+             page already defaults to the current period, so no nightly job is
+             needed. Left here (inactive) so it can be switched on in Settings ->
+             Technical -> Scheduled Actions if ongoing auto-archiving is ever
+             wanted. Its logic (_elks_close_old) keeps a full period of grace so
+             it can't archive the period still awaiting approval. -->
         <record id="ir_cron_close_old_periods" model="ir.cron">
             <field name="name">Attendance: Close Old Pay Periods</field>
             <field name="model_id" ref="model_elksattendance_timecard_cron"/>
@@ -37,7 +41,7 @@
             <field name="interval_number">1</field>
             <field name="interval_type">days</field>
             <field name="nextcall">2026-05-02 05:30:00</field>
-            <field name="active" eval="True"/>
+            <field name="active" eval="False"/>
             <field name="priority">48</field>
         </record>
 

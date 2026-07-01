@@ -406,8 +406,9 @@ class TimecardPortal(CustomerPortal):
     # (Kitchen, Lounge…), with inline Approve and a pending-request badge.
     # === AI AGENT ===
     # Ensures cards exist for all approvees (even if they never logged in). Groups
-    # by department name into an OrderedDict {dept: recordset}. Default filter
-    # 'pending' = state != approved (includes draft, so override is reachable).
+    # by department name into an OrderedDict {dept: recordset}. Default filter is
+    # 'current' (the period containing today); 'pending' shows all needing
+    # approval (state != approved, incl. draft so override is reachable).
     # The adjustment route applies/rejects a request (approver/officer only).
     # ------------------------------------------------------------------
     @http.route(['/my/timecard-approvals'], type='http', auth='user', website=True)
