@@ -92,7 +92,8 @@
                         </td>
                     </tr>
                     <tr t-if="not tc.attendance_ids">
-                        <td colspan="7" class="text-muted text-center">
+                        <td t-att-colspan="5 + (1 if tc.employee_id.x_receives_tips else 0) + (1 if show_line_actions else 0)"
+                            class="text-muted text-center">
                             No hours recorded for this period yet.
                         </td>
                     </tr>
@@ -196,7 +197,19 @@
                             </small>
                         </p>
                         <p t-else="" class="text-muted mb-0">Not yet approved.</p>
-                        <form t-if="is_approver and tc.state != 'approved'"
+                        <!-- Open change requests block final approval: they
+                             must be applied/rejected first so the approved
+                             times reflect the resolved requests. -->
+                        <div t-if="is_approver and tc.state != 'approved' and tc.pending_adjustment_count"
+                             class="alert alert-warning py-2 mt-2 mb-0" role="alert">
+                            <strong>Action needed before approval:</strong>
+                            <span t-esc="tc.pending_adjustment_count"/>
+                            open time-change request<t t-if="tc.pending_adjustment_count != 1">s</t>
+                            on this timecard. Open each shift below to
+                            <strong>apply</strong> or <strong>reject</strong> the
+                            request before you can give final approval.
+                        </div>
+                        <form t-elif="is_approver and tc.state != 'approved'"
                               t-attf-action="/my/timecard/#{tc.id}/approve"
                               method="post" class="mt-2">
                             <input type="hidden" name="csrf_token"
@@ -478,9 +491,10 @@
             </table>
 
             <t t-if="can_request">
-                <h5 class="mt-4">Request an Adjustment</h5>
-                <p class="text-muted">
-                    Suggest corrected times. Your request is sent to your
+                <h5 class="mt-4">Request a Time Correction</h5>
+                <p class="text-muted mb-2">
+                    Pick the correct times for
+                    <strong t-esc="shift_date"/>. Your request goes to your
                     supervisor to apply — your recorded punch isn't changed
                     until they approve it.
                 </p>
@@ -491,20 +505,30 @@
                       t-attf-action="/my/timecard/#{timecard.id}/line/#{att.id}/suggest">
                     <input type="hidden" name="csrf_token"
                            t-att-value="request.csrf_token()"/>
-                    <div class="col-md-4">
-                        <label class="form-label">Proposed Check In</label>
-                        <input type="datetime-local" name="proposed_check_in"
-                               class="form-control" t-att-value="in_value"/>
+                    <div class="col-6 col-md-4">
+                        <label class="form-label">Check-In Time</label>
+                        <input type="time" name="in_time"
+                               class="form-control" t-att-value="in_time"/>
                     </div>
-                    <div class="col-md-4">
-                        <label class="form-label">Proposed Check Out</label>
-                        <input type="datetime-local" name="proposed_check_out"
-                               class="form-control" t-att-value="out_value"/>
+                    <div class="col-6 col-md-4">
+                        <label class="form-label">Check-Out Time</label>
+                        <input type="time" name="out_time"
+                               class="form-control" t-att-value="out_time"/>
+                    </div>
+                    <div class="col-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox"
+                                   name="next_day" value="1" id="next_day"
+                                   t-att-checked="next_day_default"/>
+                            <label class="form-check-label" for="next_day">
+                                Check-out is the next day (overnight shift)
+                            </label>
+                        </div>
                     </div>
                     <div class="col-12">
                         <label class="form-label">Reason</label>
                         <textarea name="reason" rows="2" class="form-control"
-                                  placeholder="Explain the correction..."/>
+                                  placeholder="e.g. I forgot to clock out at 9:30"/>
                     </div>
                     <div class="col-12">
                         <button type="submit" class="btn btn-primary">
@@ -606,7 +630,15 @@
                                 <td class="text-end">
                                     <a t-attf-href="/my/timecard/#{tc.id}"
                                        class="btn btn-sm btn-outline-secondary">View</a>
-                                    <form t-if="tc.state != 'approved'"
+                                    <!-- Open change requests must be resolved
+                                         (applied/rejected) before final approval. -->
+                                    <button t-if="tc.state != 'approved' and tc.pending_adjustment_count"
+                                            type="button" disabled="disabled"
+                                            class="btn btn-sm btn-outline-warning ms-1"
+                                            title="Resolve the open change request(s) on this timecard before approving">
+                                        Resolve requests first
+                                    </button>
+                                    <form t-elif="tc.state != 'approved'"
                                           method="post" class="d-inline ms-1"
                                           t-attf-action="/my/timecard/#{tc.id}/approve">
                                         <input type="hidden" name="csrf_token"

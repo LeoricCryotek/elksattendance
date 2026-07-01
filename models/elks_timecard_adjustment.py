@@ -22,6 +22,8 @@ resulting hour change) and the **approver applies it** — applying writes
 the new times onto the real ``hr.attendance``, which in turn reopens the
 period for re-approval.
 """
+from markupsafe import Markup
+
 from odoo import api, fields, models, _
 
 
@@ -114,15 +116,22 @@ class ElksTimecardAdjustment(models.Model):
         return self.attendance_id or self.timecard_id
 
     # === HUMAN ===
-    # Posts a visible (non-internal) message to that conversation.
+    # Posts an internal audit note about this request to the line/card chatter.
     # === AI AGENT ===
-    # sudo + subtype mt_comment so portal employees see it; author defaults to
-    # the env user. Keep mt_comment (not mt_note) or it becomes admin-only.
+    # sudo + subtype mt_note (internal log) — these are audit entries, not the
+    # public Discussion thread, so they don't notify and don't show on the
+    # portal (which filters internal subtypes). body MUST be Markup to render.
     def _post_message(self, body):
-        """Post a public comment to the line's (or card's) chatter."""
+        """Post an internal LOG NOTE (audit trail) to the line/card chatter.
+
+        These are system audit entries, so they go in as notes (mt_note), not
+        public messages — they appear in the backend chatter and don't notify
+        followers. ``body`` must be a Markup so its HTML renders (a plain str
+        is shown escaped in this Odoo build).
+        """
         self.ensure_one()
         self._thread().sudo().message_post(
-            body=body, message_type='comment', subtype_xmlid='mail.mt_comment')
+            body=body, message_type='comment', subtype_xmlid='mail.mt_note')
 
     # === HUMAN ===
     # Writes the "here's my requested change" note into the shift's chatter,
@@ -138,17 +147,19 @@ class ElksTimecardAdjustment(models.Model):
                     return '—'
                 local = fields.Datetime.context_timestamp(r, dt)
                 return local.strftime('%m/%d/%Y %I:%M %p')
-            body = _(
-                "<b>Adjustment requested</b> by %(who)s<br/>"
-                "Current: %(cin)s → %(cout)s<br/>"
-                "Proposed: %(pin)s → %(pout)s<br/>"
-                "Change: <b>%(delta)s</b>",
-                who=r.requested_by.name or '',
-                cin=fmt(r.current_check_in), cout=fmt(r.current_check_out),
-                pin=fmt(r.proposed_check_in), pout=fmt(r.proposed_check_out),
-                delta=r._fmt_delta(r.hours_delta))
+            # Markup template = trusted HTML; the %-args are auto-escaped, so an
+            # employee's reason text can't inject markup.
+            tmpl = _("<b>Adjustment requested</b> by %s<br/>"
+                     "Current: %s &#8594; %s<br/>"
+                     "Proposed: %s &#8594; %s<br/>"
+                     "Change: <b>%s</b>")
+            body = Markup(tmpl) % (
+                r.requested_by.name or '',
+                fmt(r.current_check_in), fmt(r.current_check_out),
+                fmt(r.proposed_check_in), fmt(r.proposed_check_out),
+                r._fmt_delta(r.hours_delta))
             if r.reason:
-                body += "<br/>%s: %s" % (_("Reason"), r.reason)
+                body += Markup("<br/>%s: %s") % (_("Reason"), r.reason)
             r._post_message(body)
 
     # === HUMAN ===
@@ -160,6 +171,12 @@ class ElksTimecardAdjustment(models.Model):
     # Callers must ensure the user is the approver/officer (controller/view do).
     def action_apply(self):
         """Approver applies the suggestion to the real attendance record."""
+        def _fmt(r, dt):
+            if not dt:
+                return '—'
+            return fields.Datetime.context_timestamp(r, dt).strftime(
+                '%m/%d/%Y %I:%M %p')
+
         for r in self:
             if r.state != 'suggested':
                 continue
@@ -172,9 +189,14 @@ class ElksTimecardAdjustment(models.Model):
                 # Writing the punch reopens the period for re-approval.
                 r.attendance_id.sudo().write(vals)
             r.state = 'applied'
-            r._post_message(_(
-                "Adjustment applied by %(who)s (%(delta)s).",
-                who=self.env.user.name, delta=r._fmt_delta(r.hours_delta)))
+            # Rich chatter on the attendance line: who, the times now set, delta.
+            tmpl = _("<b>Adjustment applied</b> by %s.<br/>"
+                     "Check in: %s<br/>Check out: %s<br/>"
+                     "Net change: <b>%s</b>")
+            r._post_message(Markup(tmpl) % (
+                self.env.user.name,
+                _fmt(r, r.proposed_check_in), _fmt(r, r.proposed_check_out),
+                r._fmt_delta(r.hours_delta)))
         return True
 
     # === HUMAN ===
@@ -186,6 +208,6 @@ class ElksTimecardAdjustment(models.Model):
             if r.state != 'suggested':
                 continue
             r.state = 'rejected'
-            r._post_message(_(
-                "Adjustment request rejected by %s.") % self.env.user.name)
+            r._post_message(
+                Markup(_("Adjustment request rejected by %s.")) % self.env.user.name)
         return True

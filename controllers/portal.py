@@ -28,11 +28,12 @@ administrator (``hr_attendance.group_hr_attendance_user``). There is no
 public or access-token entry point — the email link forces a login.
 """
 from collections import OrderedDict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytz
 
 from odoo import http, fields, _
+from odoo.exceptions import UserError
 from odoo.http import request
 from odoo.tools import plaintext2html
 from odoo.addons.portal.controllers.portal import CustomerPortal, pager as portal_pager
@@ -242,10 +243,17 @@ class TimecardPortal(CustomerPortal):
         # tc_sudo is a sudo recordset; _elks_sign re-checks identity against
         # the real logged-in user and writes with sudo (portal users are
         # read-only on this model).
-        if tc_sudo._elks_is_owner_for(user):
-            tc_sudo._elks_sign(user, 'employee')
-        elif tc_sudo._elks_is_approver_for(user):
-            tc_sudo._elks_sign(user, 'approver')
+        try:
+            if tc_sudo._elks_is_owner_for(user):
+                tc_sudo._elks_sign(user, 'employee')
+            elif tc_sudo._elks_is_approver_for(user):
+                tc_sudo._elks_sign(user, 'approver')
+        except UserError:
+            # Most likely: open change requests block final approval. Bounce
+            # back to the timecard with a flag the template turns into a notice.
+            back = kw.get('redirect') or '/my/timecard/%s' % timecard_id
+            sep = '&' if '?' in back else '?'
+            return request.redirect('%s%se=pending' % (back, sep))
         return request.redirect(kw.get('redirect') or '/my/timecard/%s' % timecard_id)
 
     # ------------------------------------------------------------------
@@ -273,11 +281,12 @@ class TimecardPortal(CustomerPortal):
         suggestions = tc_sudo.adjustment_ids.filtered(
             lambda a: a.attendance_id.id == attendance_id)
 
-        def to_local_input(dt):
-            if not dt:
-                return ''
-            return fields.Datetime.context_timestamp(
-                tc_sudo, dt).strftime('%Y-%m-%dT%H:%M')
+        # The shift sits on a known day, so the employee only picks new TIMES.
+        # Pre-fill HH:MM from the current punch (local tz); flag overnight shifts.
+        local_in = (fields.Datetime.context_timestamp(tc_sudo, att.check_in)
+                    if att.check_in else None)
+        local_out = (fields.Datetime.context_timestamp(tc_sudo, att.check_out)
+                     if att.check_out else None)
 
         # Public comments on this attendance line (skip internal log notes)
         messages = att.sudo().message_ids.filtered(
@@ -293,8 +302,11 @@ class TimecardPortal(CustomerPortal):
             'is_approver': tc_sudo._elks_is_approver_for(user),
             # Requests are only allowed while the period is still open (draft)
             'can_request': tc_sudo._elks_is_owner_for(user) and tc_sudo.state == 'draft',
-            'in_value': to_local_input(att.check_in),
-            'out_value': to_local_input(att.check_out),
+            'in_time': local_in.strftime('%H:%M') if local_in else '',
+            'out_time': local_out.strftime('%H:%M') if local_out else '',
+            'shift_date': local_in.strftime('%a %m/%d/%Y') if local_in else '',
+            'next_day_default': bool(local_in and local_out
+                                     and local_out.date() > local_in.date()),
             'error': kw.get('e'),
             'page_name': 'timecard',
             'user': user,
@@ -317,17 +329,27 @@ class TimecardPortal(CustomerPortal):
 
         tz = pytz.timezone(user.tz or 'UTC')
 
-        def to_utc(s):
-            if not s:
+        # The form sends just times (HH:MM). The shift's day is fixed, so combine
+        # the picked time with the shift date (the check-in's local date) and
+        # convert to UTC. 'next_day' shifts the check-out to the following day
+        # for overnight shifts.
+        local_in = (fields.Datetime.context_timestamp(tc_sudo, att.check_in)
+                    if att.check_in else None)
+        base_date = local_in.date() if local_in else fields.Date.context_today(user)
+
+        def time_to_utc(time_str, add_day=0):
+            if not time_str:
                 return False
             try:
-                naive = datetime.strptime(s, '%Y-%m-%dT%H:%M')
+                t = datetime.strptime(time_str.strip(), '%H:%M').time()
             except ValueError:
                 return False
+            naive = datetime.combine(base_date + timedelta(days=add_day), t)
             return tz.localize(naive).astimezone(pytz.utc).replace(tzinfo=None)
 
-        pin = to_utc(kw.get('proposed_check_in'))
-        pout = to_utc(kw.get('proposed_check_out'))
+        next_day = kw.get('next_day') in ('1', 'on', 'true', 'True', 'yes')
+        pin = time_to_utc(kw.get('in_time'))
+        pout = time_to_utc(kw.get('out_time'), add_day=1 if next_day else 0)
         reason = (kw.get('reason') or '').strip()
 
         # Reject an empty submit: no time change AND no reason.

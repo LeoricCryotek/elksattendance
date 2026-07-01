@@ -14,7 +14,7 @@
 # =============================================================================
 {
     "name": "Elks Attendance — Manager Security & Reporting",
-    "version": "19.0.5.0",
+    "version": "19.0.5.4",
     "category": "Human Resources",
     "summary": "Team-based attendance security and payroll timecard reports.",
     "description": """
@@ -35,9 +35,28 @@ Reporting
 * **Payroll Timecard Report** — semi-monthly timecard PDF per employee
   with pay-period navigation, CSV export for QuickBooks import, and
   lodge-branded header.
-* **Scheduled Timecard Email** — automatically generates and emails
-  the timecard PDF to a configured recipient on a weekly, semi-monthly,
-  or monthly schedule using Odoo's outgoing mail server.
+* **Timecard Emails** — each employee is emailed their OWN current
+  timecard (to their ``work_email``) via the configured outgoing mail
+  server: a post-shift summary (sent by cron a few minutes after
+  clock-out so tips are captured), an optional scheduled reminder, and a
+  "may have forgotten to clock out" alert to the employee and their
+  approver once a shift passes the configurable threshold.
+
+Portal & Approvals
+------------------
+* **Portal timecards** — employees review their own current timecard and
+  searchable history; approvers get a "Timecard Approvals" workspace
+  grouped by area. All portal pages are login-only and identity-checked
+  (owner / approver / attendance admin).
+* **Two-step sign-off** — the employee approves, then the Attendance
+  approver gives final approval; both are stamped as digital signatures
+  (name + date/time). Approver can override if the employee hasn't signed.
+* **Adjustment requests** — employees suggest time corrections; the
+  approver Applies (which writes the punch) or Rejects. Final approval is
+  blocked until every open request is resolved.
+* **Period close** — old periods are archived so approvers and employees
+  see only the current period (history stays searchable). Tips are
+  captured per shift and shown on portal + reports.
 
 How the Security Works
 ----------------------

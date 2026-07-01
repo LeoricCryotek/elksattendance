@@ -55,10 +55,20 @@
                             string="Reopen (unarchive)" class="btn-secondary"
                             invisible="not x_closed"/>
                     <field name="x_closed" invisible="1"/>
+                    <field name="pending_adjustment_count" invisible="1"/>
                     <field name="state" widget="statusbar"
                            statusbar_visible="draft,employee_approved,approved"/>
                 </header>
                 <sheet>
+                    <!-- Open change requests block final approval; resolve them
+                         (Adjustment Requests below) before approving. -->
+                    <div class="alert alert-warning" role="alert"
+                         invisible="pending_adjustment_count == 0 or state == 'approved'">
+                        <strong>Action needed:</strong> this timecard has
+                        <field name="pending_adjustment_count" class="oe_inline"/>
+                        open time-change request(s). Apply or reject each one
+                        before giving final approval.
+                    </div>
                     <div class="oe_title">
                         <h1><field name="display_name" readonly="1"/></h1>
                     </div>

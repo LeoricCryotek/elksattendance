@@ -111,8 +111,9 @@ class ElksTimecard(models.Model):
     # === HUMAN ===
     # How many change requests on this card are still waiting for a decision.
     # === AI AGENT ===
-    # Drives the badge on the approver portal list. 'suggested' == not yet
-    # applied/rejected.
+    # 'suggested' == not yet applied/rejected. Drives the approver portal badge,
+    # the backend + portal "resolve first" warning banners, AND the hard block
+    # on final approval in _elks_sign (approver role).
     @api.depends('adjustment_ids.state')
     def _compute_pending_adjustments(self):
         for tc in self:
@@ -326,7 +327,8 @@ class ElksTimecard(models.Model):
     # (controllers call them on sudo recordsets), so keep them strict. _elks_sign
     # is sudo-safe: explicit identity check, then sudo write (portal users are
     # read-only). Approver signing from 'draft' is a recorded supervisor
-    # OVERRIDE. Employee signing also emails the approver.
+    # OVERRIDE. Employee signing also emails the approver. Approver sign-off is
+    # blocked while any adjustment request is still open (pending_adjustment_count).
     # ------------------------------------------------------------------
     def _is_officer(self, user):
         return user.has_group('hr_attendance.group_hr_attendance_user')
@@ -375,6 +377,15 @@ class ElksTimecard(models.Model):
             if not (self._elks_is_approver_for(user) or self._is_officer(user)):
                 raise AccessError(_(
                     "Only the Attendance approver can give final approval."))
+            # Block final approval while change requests are still open: every
+            # adjustment must be Applied or Rejected first, so the approved
+            # times reflect the resolved requests. (Backend + portal both pass
+            # through here, so this guard covers every approval path.)
+            if self.pending_adjustment_count:
+                raise UserError(_(
+                    "This timecard has %(n)s time-change request(s) still "
+                    "open. Apply or reject each one before giving final "
+                    "approval.", n=self.pending_adjustment_count))
             override = self.state == 'draft'  # employee hasn't signed
             vals = {
                 'state': 'approved',
@@ -479,15 +490,23 @@ class ElksTimecard(models.Model):
 
     def _elks_create_suggestion(self, attendance, proposed_in, proposed_out,
                                 reason, user):
-        """Create an employee adjustment suggestion and log it to chatter."""
+        """Create an employee adjustment suggestion and log it to chatter.
+
+        A blank proposed field defaults to the CURRENT punch value, so the
+        request always carries a complete in/out pair. That way the approver's
+        Apply writes the full intended state to the attendance (no blank
+        columns, no no-op applies).
+        """
         self.ensure_one()
+        cur_in = attendance.check_in if attendance else False
+        cur_out = attendance.check_out if attendance else False
         adj = self.env['elks.timecard.adjustment'].sudo().create({
             'timecard_id': self.id,
             'attendance_id': attendance.id if attendance else False,
-            'current_check_in': attendance.check_in if attendance else False,
-            'current_check_out': attendance.check_out if attendance else False,
-            'proposed_check_in': proposed_in,
-            'proposed_check_out': proposed_out,
+            'current_check_in': cur_in,
+            'current_check_out': cur_out,
+            'proposed_check_in': proposed_in or cur_in,
+            'proposed_check_out': proposed_out or cur_out,
             'reason': reason,
             'requested_by': user.id,
         })
