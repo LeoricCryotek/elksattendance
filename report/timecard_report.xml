@@ -95,7 +95,7 @@
                                                 <strong>Period:</strong>
                                                 <span t-field="wizard.date_from"
                                                       t-options='{"format": "MM/dd/yyyy"}'/>
-                                                &#8212;
+                                                to
                                                 <span t-field="wizard.date_to"
                                                       t-options='{"format": "MM/dd/yyyy"}'/>
                                             </p>
