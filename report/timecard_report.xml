@@ -111,6 +111,13 @@
                             <t t-set="records" t-value="grouped[employee].sorted(key=lambda a: a.check_in)"/>
                             <t t-set="total_hours" t-value="0"/>
                             <t t-set="is_tipped" t-value="employee.x_receives_tips"/>
+                            <!-- Event gratuity (elksevent) rides on the timecard even
+                                 for staff who are not normally tipped. -->
+                            <t t-set="has_grat"
+                               t-value="('x_gratuity_share' in records._fields) and any(records.mapped('x_gratuity_share'))"/>
+                            <t t-set="has_coord"
+                               t-value="('x_coordinator_fee_share' in records._fields) and any(records.mapped('x_coordinator_fee_share'))"/>
+                            <t t-set="show_tips" t-value="is_tipped or has_grat or has_coord"/>
                             <t t-set="total_tips" t-value="0"/>
 
                             <table style="width:100%; border-collapse:collapse; font-size:12px;">
@@ -121,7 +128,7 @@
                                         <th style="padding:6px 8px; border:1px solid #ccc; text-align:center; width:18%;">Check In</th>
                                         <th style="padding:6px 8px; border:1px solid #ccc; text-align:center; width:18%;">Check Out</th>
                                         <th style="padding:6px 8px; border:1px solid #ccc; text-align:right; width:14%;">Hours</th>
-                                        <t t-if="is_tipped">
+                                        <t t-if="show_tips">
                                             <th style="padding:6px 8px; border:1px solid #ccc; text-align:right; width:10%;">Tips</th>
                                         </t>
                                         <th style="padding:6px 8px; border:1px solid #ccc; text-align:right; width:14%;">Running Total</th>
@@ -131,8 +138,10 @@
                                     <t t-foreach="records" t-as="att">
                                         <t t-set="hours" t-value="att.worked_hours or 0.0"/>
                                         <t t-set="total_hours" t-value="total_hours + hours"/>
-                                        <t t-if="is_tipped">
-                                            <t t-set="total_tips" t-value="total_tips + (att.x_tip_amount or 0.0)"/>
+                                        <t t-set="row_tip"
+                                           t-value="(att.x_tip_amount or 0.0 if is_tipped else 0.0) + (att.x_gratuity_share or 0.0 if 'x_gratuity_share' in att._fields else 0.0) + (att.x_coordinator_fee_share or 0.0 if 'x_coordinator_fee_share' in att._fields else 0.0)"/>
+                                        <t t-if="show_tips">
+                                            <t t-set="total_tips" t-value="total_tips + row_tip"/>
                                         </t>
                                         <tr>
                                             <td style="padding:5px 8px; border:1px solid #ddd;">
@@ -155,9 +164,9 @@
                                             <td style="padding:5px 8px; border:1px solid #ddd; text-align:right;">
                                                 <span t-esc="wizard._format_hours(hours)"/>
                                             </td>
-                                            <t t-if="is_tipped">
+                                            <t t-if="show_tips">
                                                 <td style="padding:5px 8px; border:1px solid #ddd; text-align:right;">
-                                                    <span t-esc="'$%.2f' % (att.x_tip_amount or 0.0)"/>
+                                                    <span t-esc="'$%.2f' % row_tip"/>
                                                 </td>
                                             </t>
                                             <td style="padding:5px 8px; border:1px solid #ddd; text-align:right; color:#666;">
@@ -174,7 +183,7 @@
                                         <td style="padding:6px 8px; border:1px solid #ccc; text-align:right;">
                                             <span t-esc="wizard._format_hours(total_hours)"/>
                                         </td>
-                                        <t t-if="is_tipped">
+                                        <t t-if="show_tips">
                                             <td style="padding:6px 8px; border:1px solid #ccc; text-align:right;">
                                                 <span t-esc="'$%.2f' % total_tips"/>
                                             </td>
@@ -190,7 +199,7 @@
                                         <td colspan="4" style="padding:4px 8px; text-align:right;">
                                             Total entries:
                                         </td>
-                                        <td t-att-colspan="'3' if is_tipped else '2'" style="padding:4px 8px; text-align:right;">
+                                        <td t-att-colspan="'3' if show_tips else '2'" style="padding:4px 8px; text-align:right;">
                                             <span t-esc="len(records)"/>
                                         </td>
                                     </tr>

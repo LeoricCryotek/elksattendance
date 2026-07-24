@@ -186,9 +186,15 @@ class ElksTimecard(models.Model):
             tc.attendance_ids = atts
             tc.shift_count = len(atts)
             tc.total_hours = sum(atts.mapped('worked_hours'))
-            tc.total_tips = (
-                sum(atts.mapped('x_tip_amount'))
-                if tc.employee_id.x_receives_tips else 0.0)
+            tips = (sum(atts.mapped('x_tip_amount'))
+                    if tc.employee_id.x_receives_tips else 0.0)
+            # Event gratuity + coordinator fee (elksevent) ride the timecard even
+            # for staff who are not normally tipped.
+            grat = (sum(atts.mapped('x_gratuity_share'))
+                    if 'x_gratuity_share' in atts._fields else 0.0)
+            coord = (sum(atts.mapped('x_coordinator_fee_share'))
+                     if 'x_coordinator_fee_share' in atts._fields else 0.0)
+            tc.total_tips = tips + grat + coord
 
     # ------------------------------------------------------------------
     # Portal URL
