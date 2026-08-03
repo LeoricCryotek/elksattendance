@@ -79,6 +79,27 @@ class HrAttendance(models.Model):
              "receiving tips.",
     )
 
+    # === HUMAN ===
+    # Whether a shift counts as PAID (payroll) hours or VOLUNTEER / CHARITY
+    # hours. This is what the Hours Dashboard groups by, and it follows the same
+    # rule as payroll: Volunteers-department or charity-tagged shifts are not paid.
+    # === AI AGENT ===
+    # Stored + indexed so it's a fast groupby dimension in the graph/pivot.
+    # Mirrors timecard_cron._payroll_domain: paid = NOT Volunteers dept AND no
+    # x_charity_task_id; otherwise volunteer. As a new stored computed field it
+    # is backfilled automatically on module upgrade (no migration needed).
+    x_hours_kind = fields.Selection(
+        [('paid', 'Paid'), ('volunteer', 'Volunteer / Charity')],
+        string="Hours Type", compute='_compute_x_hours_kind',
+        store=True, index=True)
+
+    @api.depends('employee_id.department_id.name', 'x_charity_task_id')
+    def _compute_x_hours_kind(self):
+        for att in self:
+            dept = att.employee_id.department_id.name
+            is_volunteer = (dept == 'Volunteers') or bool(att.x_charity_task_id)
+            att.x_hours_kind = 'volunteer' if is_volunteer else 'paid'
+
     # ------------------------------------------------------------------
     # Email-automation bookkeeping flags
     # ------------------------------------------------------------------

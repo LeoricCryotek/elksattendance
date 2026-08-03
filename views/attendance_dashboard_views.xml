@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- =====================================================================
+     === HUMAN ===
+     The Hours Dashboard: a bar graph and a pivot table that visualize
+     Paid vs Volunteer/Charity hours over time, with tips. Lives under the
+     Attendances app's Reporting menu. Everything is interactive — switch
+     bar/line/pie, add Department grouping, change the date range, export.
+     === AI AGENT ===
+     graph + pivot views on hr.attendance grouped by check_in:month and the
+     stored x_hours_kind field (see hr_attendance.py). The act_window binds
+     these two views explicitly so hr_attendance's own graph/pivot aren't used.
+     Department drill-down is available via the pivot/graph groupby UI.
+     ===================================================================== -->
+<odoo>
+
+    <record id="view_elks_attendance_hours_graph" model="ir.ui.view">
+        <field name="name">elks.attendance.hours.graph</field>
+        <field name="model">hr.attendance</field>
+        <field name="arch" type="xml">
+            <graph string="Hours by Type" type="bar" stacked="1" sample="1">
+                <field name="check_in" interval="month"/>
+                <field name="x_hours_kind"/>
+                <field name="worked_hours" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="view_elks_attendance_hours_pivot" model="ir.ui.view">
+        <field name="name">elks.attendance.hours.pivot</field>
+        <field name="model">hr.attendance</field>
+        <field name="arch" type="xml">
+            <pivot string="Hours" sample="1">
+                <field name="check_in" interval="month" type="row"/>
+                <field name="x_hours_kind" type="col"/>
+                <field name="worked_hours" type="measure"/>
+                <field name="x_tip_amount" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="action_elks_attendance_dashboard" model="ir.actions.act_window">
+        <field name="name">Hours Dashboard</field>
+        <field name="res_model">hr.attendance</field>
+        <field name="view_mode">graph,pivot</field>
+        <field name="view_ids" eval="[(5, 0, 0),
+            (0, 0, {'view_mode': 'graph', 'view_id': ref('view_elks_attendance_hours_graph')}),
+            (0, 0, {'view_mode': 'pivot', 'view_id': ref('view_elks_attendance_hours_pivot')})]"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No attendance to chart yet</p>
+            <p>Paid vs Volunteer/Charity hours over time. Use <b>Measures</b> for
+            tips, and group by <b>Department</b> to break it down further.</p>
+        </field>
+    </record>
+
+    <menuitem id="menu_elks_attendance_hours_dashboard"
+              name="Hours Dashboard"
+              parent="hr_attendance.menu_hr_attendance_reporting"
+              action="action_elks_attendance_dashboard"
+              sequence="15"/>
+
+</odoo>

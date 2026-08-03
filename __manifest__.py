@@ -14,7 +14,7 @@
 # =============================================================================
 {
     "name": "Elks Attendance — Manager Security & Reporting",
-    "version": "19.0.5.9",
+    "version": "19.0.5.10",
     "category": "Human Resources",
     "summary": "Team-based attendance security and payroll timecard reports.",
     "description": """
@@ -93,6 +93,7 @@ assign each employee individually.
         "views/res_config_settings_views.xml",
         "views/elks_timecard_views.xml",
         "views/portal_templates.xml",
+        "views/attendance_dashboard_views.xml",
         "views/elksattendance_menus.xml",
         "data/timecard_cron.xml",
     ],
