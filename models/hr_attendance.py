@@ -149,15 +149,19 @@ class HrAttendance(models.Model):
     # When shifts are created/edited/deleted: queue the post-shift email, stop
     # edits to already-approved periods, and reopen a card if its time changed.
     # === AI AGENT ===
-    # _ELKS_TIMECARD_FIELDS = the time fields whose change matters. write()
-    # asserts the lock BEFORE super() (so the edit is refused), then after super
-    # queues emails on the open->closed transition and reopens affected cards.
-    # create() does NOT lock (new entries are how you correct a locked period).
-    # context 'elks_bypass_lock' bypasses the lock (none set today; reserved).
+    # _ELKS_TIMECARD_FIELDS = fields whose change is lock-checked. _ELKS_REOPEN_
+    # FIELDS = the subset (hours) that reopens a signed card; x_tip_amount is
+    # excluded so an admin can add a tip without un-approving. write() asserts
+    # the lock BEFORE super() (refused for non-admins), then queues emails and
+    # reopens on hours changes. Attendance OFFICERS bypass the lock (backend
+    # override); context 'elks_bypass_lock' also bypasses it. create() never locks.
     # ------------------------------------------------------------------
-    # Attendance fields whose change should reopen an already-signed
-    # timecard for re-approval.
+    # Fields whose change is refused on an approved (locked) period.
     _ELKS_TIMECARD_FIELDS = ("check_in", "check_out", "x_tip_amount", "employee_id")
+    # Subset that changes the APPROVED HOURS and so reopens a signed card.
+    # x_tip_amount is intentionally excluded: a tip is a payroll addendum and
+    # must not un-approve an already-signed period.
+    _ELKS_REOPEN_FIELDS = ("check_in", "check_out", "employee_id")
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -167,21 +171,30 @@ class HrAttendance(models.Model):
         return records
 
     def write(self, vals):
-        # Lock approved periods: editing a time field on an approved line
-        # is not allowed (corrections go in as new entries).
+        # Lock approved periods: editing a locked line is refused — EXCEPT for
+        # attendance officers (admins), who may amend from the backend.
         if set(vals) & set(self._ELKS_TIMECARD_FIELDS):
             self._elks_assert_not_locked()
-        # Capture records transitioning open -> closed in THIS write, so
-        # we queue only on the actual clock-out and not on later edits
-        # to an already-closed record.
+        # Capture records transitioning open -> closed in THIS write, so we
+        # queue only on the actual clock-out and not on later edits.
         newly_closing = self.browse()
         if vals.get("check_out"):
             newly_closing = self.filtered(lambda a: not a.check_out)
+        # An officer amending a tip on an already-approved line: log it for
+        # audit (the card stays approved — a tip doesn't change hours).
+        tip_amended = self.browse()
+        if "x_tip_amount" in vals:
+            tip_amended = self.filtered(
+                lambda a: a._elks_find_timecard().state == "approved")
         res = super().write(vals)
         if newly_closing:
             newly_closing._elks_queue_post_shift_email()
-        if any(f in vals for f in self._ELKS_TIMECARD_FIELDS):
+        # Only HOURS changes reopen an approved period; a tip is a payroll
+        # addendum and leaves the approval (and its lock) intact.
+        if any(f in vals for f in self._ELKS_REOPEN_FIELDS):
             self._elks_reset_affected_timecards()
+        if tip_amended:
+            tip_amended._elks_log_tip_amendment(vals.get("x_tip_amount"))
         return res
 
     def unlink(self):
@@ -207,6 +220,28 @@ class HrAttendance(models.Model):
         ]
         if snapshot:
             self.env["elks.timecard"]._elks_reset_for_snapshot(snapshot)
+
+    # === HUMAN ===
+    # Writes an audit note on the timecard when an admin adds or changes a tip on
+    # a shift whose pay period is already approved, so the change stays traceable.
+    # === AI AGENT ===
+    # Posts an internal note (mt_note) to the covering timecard. Called from
+    # write() only for lines whose card is 'approved'. sudo for portal-safety.
+    def _elks_log_tip_amendment(self, new_tip):
+        for att in self:
+            tc = att._elks_find_timecard()
+            if not tc:
+                continue
+            when = (fields.Datetime.context_timestamp(att, att.check_in)
+                    if att.check_in else None)
+            tc.sudo().message_post(
+                body=_("Tip amended after approval by %(user)s: %(emp)s shift"
+                       " on %(date)s set to $%(amt).2f.",
+                       user=self.env.user.name,
+                       emp=att.employee_id.name or '',
+                       date=when.strftime('%m/%d/%Y') if when else '',
+                       amt=new_tip or 0.0),
+                subtype_xmlid="mail.mt_note")
 
     # ------------------------------------------------------------------
     # Timecard lookup + the approved-period lock + backend approve button
@@ -248,9 +283,14 @@ class HrAttendance(models.Model):
 
         Corrections to an approved period are made by adding a NEW
         attendance entry (which reopens the period for re-approval), not
-        by editing or deleting an approved line.
+        by editing or deleting an approved line. Attendance OFFICERS (admins)
+        are exempt so they can amend a locked record from the backend — e.g.
+        add a late-reported tip to an already-approved payroll line.
         """
         if self.env.context.get("elks_bypass_lock"):
+            return
+        # Admins / attendance officers may override the lock (backend edits).
+        if self.env.user.has_group("hr_attendance.group_hr_attendance_user"):
             return
         for att in self:
             tc = att._elks_find_timecard()
