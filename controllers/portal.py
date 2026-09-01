@@ -407,8 +407,8 @@ class TimecardPortal(CustomerPortal):
     # === AI AGENT ===
     # Ensures cards exist for all approvees (even if they never logged in). Groups
     # by department name into an OrderedDict {dept: recordset}. Default filter is
-    # 'current' (the period containing today); 'pending' shows all needing
-    # approval (state != approved, incl. draft so override is reachable).
+    # 'previous' (the just-ended period approvers actually validate); 'current' is
+    # the in-progress period; 'pending' shows all needing approval (incl. draft).
     # The adjustment route applies/rejects a request (approver/officer only).
     # ------------------------------------------------------------------
     @http.route(['/my/timecard-approvals'], type='http', auth='user', website=True)
@@ -423,9 +423,15 @@ class TimecardPortal(CustomerPortal):
         base = self._elks_approver_domain()
 
         this_year = date(today.year, 1, 1)
-        # Default view = only the pay period that contains today (old periods
-        # are archived by the close cron, so 'All' just shows open history).
+        # Approvers validate the period that JUST ENDED, so default to the
+        # PREVIOUS period (on the 1st/16th the "current" period is still empty).
+        Cron = request.env['elksattendance.timecard.cron'].sudo()
+        cur_start, _cur_end = Cron._get_current_period(today, Timecard._frequency())
+        prev_ref = cur_start - timedelta(days=1)   # last day of the previous period
         searchbar_filters = {
+            'previous': {'label': _('Previous Period'),
+                         'domain': [('period_start', '<=', prev_ref),
+                                    ('period_end', '>=', prev_ref)]},
             'current': {'label': _('Current Period'),
                         'domain': [('period_start', '<=', today),
                                    ('period_end', '>=', today)]},
@@ -436,7 +442,7 @@ class TimecardPortal(CustomerPortal):
             'all': {'label': _('All Open'), 'domain': []},
         }
         if not filterby or filterby not in searchbar_filters:
-            filterby = 'current'
+            filterby = 'previous'
         domain = base + searchbar_filters[filterby]['domain']
         cards = Timecard.search(domain, order='period_start desc')
 
