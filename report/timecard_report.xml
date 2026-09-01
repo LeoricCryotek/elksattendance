@@ -38,7 +38,11 @@
                    t-value="wizard.env['elks.lodge.settings'].sudo().search([], limit=1)"/>
 
                 <t t-foreach="sorted_employees" t-as="employee">
-                        <div class="page" style="font-size: 12px;">
+                        <!-- Force each employee's timecard onto its own sheet for
+                             payroll. page-break-BEFORE on every card after the
+                             first avoids a trailing blank page. -->
+                        <div class="page"
+                             t-attf-style="font-size: 12px; #{'' if employee_first else 'page-break-before: always;'}">
                             <!-- ===== LODGE HEADER WITH LOGOS ===== -->
                             <table style="width: 100%; margin-bottom: 10px; border: none;">
                                 <tr>

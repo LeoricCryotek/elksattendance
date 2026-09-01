@@ -14,7 +14,7 @@
 # =============================================================================
 {
     "name": "Elks Attendance — Manager Security & Reporting",
-    "version": "19.0.5.12",
+    "version": "19.0.5.13",
     "category": "Human Resources",
     "summary": "Team-based attendance security and payroll timecard reports.",
     "description": """
