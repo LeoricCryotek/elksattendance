@@ -328,6 +328,51 @@ class ElksTimecardReportWizard(models.TransientModel):
         return dict(grouped)
 
     # === HUMAN ===
+    # Event call-out pay for this period, grouped by employee. Event work is paid
+    # as a 1099 disbursement (event labor + tip-pool share) to WHOEVER worked it —
+    # even a W-2 employee, whose event pay is separate from their hourly — so it
+    # rides on their timecard as a "1099 Event Pay" section. Custodial call-outs
+    # are excluded (not paid this way).
+    # === AI AGENT ===
+    # Source = elks.event.callout.line (elksevent module; optional — env-guarded
+    # so elksattendance still works without it). Matched to the period by the
+    # call-out's event date (callout_id.event_id.x_event_date, stored on
+    # project.task). Only CERTIFIED call-outs, department != custodial, with an
+    # employee_id. Per-line amount = raw_cost (hours x rate) + gratuity_share.
+    def _get_event_1099_data(self):
+        """Return {hr.employee: callout-line recordset} of event 1099 pay."""
+        self.ensure_one()
+        if 'elks.event.callout.line' not in self.env:
+            return {}
+        Line = self.env['elks.event.callout.line'].sudo()
+        domain = [
+            ('employee_id', '!=', False),
+            ('callout_id.state', '=', 'certified'),
+            ('callout_id.department', '!=', 'custodial'),
+            ('callout_id.event_id.x_event_date', '>=', self.date_from),
+            ('callout_id.event_id.x_event_date', '<=', self.date_to),
+        ]
+        if self.employee_ids:
+            domain.append(('employee_id', 'in', self.employee_ids.ids))
+        grouped = defaultdict(lambda: Line.browse())
+        for line in Line.search(domain, order='id'):
+            grouped[line.employee_id] |= line
+        return dict(grouped)
+
+    # === HUMAN ===
+    # Everyone who belongs on the report: employees with hours PLUS anyone with
+    # event 1099 pay this period (so an event-only worker still gets a timecard).
+    # === AI AGENT ===
+    # Union of _get_attendance_data + _get_event_1099_data keys, sorted by name.
+    # _get_attendance_data still raises if the period has zero attendance overall
+    # (unchanged), so this doesn't render event-only periods with no clocked time.
+    def _get_report_employees(self):
+        self.ensure_one()
+        emps = set(self._get_attendance_data().keys()) \
+            | set(self._get_event_1099_data().keys())
+        return sorted(emps, key=lambda e: e.name or '')
+
+    # === HUMAN ===
     # The timezone the timecard prints in — the LODGE's local time, so a shift
     # always reads the same whether you run the report yourself or the nightly
     # email does. This is the fix for morning shifts printing as afternoon on

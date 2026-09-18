@@ -33,7 +33,8 @@
         <t t-call="web.html_container">
             <t t-foreach="docs" t-as="wizard">
                 <t t-set="grouped" t-value="wizard._get_attendance_data()"/>
-                <t t-set="sorted_employees" t-value="sorted(grouped.keys(), key=lambda e: e.name)"/>
+                <t t-set="events_by_emp" t-value="wizard._get_event_1099_data()"/>
+                <t t-set="sorted_employees" t-value="wizard._get_report_employees()"/>
                 <t t-set="settings"
                    t-value="wizard.env['elks.lodge.settings'].sudo().search([], limit=1)"/>
 
@@ -112,7 +113,10 @@
                             </div>
 
                             <!-- Attendance table -->
-                            <t t-set="records" t-value="grouped[employee].sorted(key=lambda a: a.check_in)"/>
+                            <!-- .get: an event-only worker (1099 pay, no clocked
+                                 hours) has no attendance recordset in grouped. -->
+                            <t t-set="att_recs" t-value="grouped.get(employee) or wizard.env['hr.attendance']"/>
+                            <t t-set="records" t-value="att_recs.sorted(key=lambda a: a.check_in)"/>
                             <t t-set="total_hours" t-value="0"/>
                             <t t-set="is_tipped" t-value="employee.x_receives_tips"/>
                             <!-- Event gratuity (elksevent) rides on the timecard even
@@ -209,6 +213,93 @@
                                     </tr>
                                 </tfoot>
                             </table>
+
+                            <!-- ===== EVENT PAY (call-out rate) — second area =====
+                                 When a department manager puts someone on a certified
+                                 call-out, their event-tagged clock-ins are paid at the
+                                 EVENT RATE as a second area on this same timecard
+                                 (not an independent card). Falls back to the planned
+                                 roster line when no clock-in was recorded. Labelled by
+                                 the worker's pay category (1099 vs employee). -->
+                            <t t-set="ev_atts"
+                               t-value="records.filtered(lambda a: a.x_event_id and (a.x_event_pay or a.x_gratuity_share)) if 'x_event_pay' in records._fields else records.browse()"/>
+                            <t t-set="ev_lines" t-value="events_by_emp.get(employee)"/>
+                            <t t-set="is_1099"
+                               t-value="('x_pay_category' in employee._fields) and employee.x_pay_category == '1099'"/>
+                            <t t-if="ev_atts or ev_lines">
+                                <div style="margin-top:25px;">
+                                    <div style="background:#003366; color:#fff; padding:5px 8px; font-weight:bold; font-size:12px;">
+                                        <t t-if="is_1099">1099 Event Pay</t><t t-else="">Event Pay (call-out rate)</t> — <span t-esc="employee.name"/>
+                                    </div>
+                                    <table style="width:100%; border-collapse:collapse; font-size:11px; margin-top:4px;">
+                                        <thead>
+                                            <tr style="background:#f0f0f0;">
+                                                <th style="padding:5px 8px; border:1px solid #ccc; text-align:left;">Date</th>
+                                                <th style="padding:5px 8px; border:1px solid #ccc; text-align:left;">Event</th>
+                                                <th style="padding:5px 8px; border:1px solid #ccc; text-align:left;">Role</th>
+                                                <th style="padding:5px 8px; border:1px solid #ccc; text-align:right;">Hours</th>
+                                                <th style="padding:5px 8px; border:1px solid #ccc; text-align:right;">Event Rate/hr</th>
+                                                <th style="padding:5px 8px; border:1px solid #ccc; text-align:right;">Event Pay</th>
+                                                <th style="padding:5px 8px; border:1px solid #ccc; text-align:right;">Tips</th>
+                                                <th style="padding:5px 8px; border:1px solid #ccc; text-align:right;">Total</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <t t-set="ev_total" t-value="0.0"/>
+                                            <t t-if="ev_atts">
+                                                <!-- Actual clocked event shifts at the event rate. -->
+                                                <t t-foreach="ev_atts" t-as="att">
+                                                    <t t-set="labor" t-value="att.x_event_pay or 0.0"/>
+                                                    <t t-set="etips" t-value="att.x_gratuity_share or 0.0"/>
+                                                    <t t-set="line_total" t-value="labor + etips"/>
+                                                    <t t-set="ev_total" t-value="ev_total + line_total"/>
+                                                    <tr>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="att.check_in and att.check_in.strftime('%m/%d/%Y') or ''"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="att.x_event_id.name or ''"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="dict(att._fields['x_event_role'].selection).get(att.x_event_role, att.x_event_role or '')"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="wizard._format_hours(att.worked_hours or 0.0)"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % (att.x_event_rate or 0.0)"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % labor"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % etips"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right; font-weight:bold;"><span t-esc="'$%.2f' % line_total"/></td>
+                                                    </tr>
+                                                </t>
+                                            </t>
+                                            <t t-else="">
+                                                <!-- No clock-in: fall back to the planned certified roster. -->
+                                                <t t-foreach="ev_lines" t-as="el">
+                                                    <t t-set="labor" t-value="el.raw_cost or 0.0"/>
+                                                    <t t-set="etips" t-value="el.gratuity_share or 0.0"/>
+                                                    <t t-set="line_total" t-value="labor + etips"/>
+                                                    <t t-set="ev_total" t-value="ev_total + line_total"/>
+                                                    <tr>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="el.callout_id.event_date and el.callout_id.event_date.strftime('%m/%d/%Y') or ''"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="el.callout_id.event_name or ''"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="el.role or ''"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="wizard._format_hours(el.hours or 0.0)"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % (el.rate or 0.0)"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % labor"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % etips"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right; font-weight:bold;"><span t-esc="'$%.2f' % line_total"/></td>
+                                                    </tr>
+                                                </t>
+                                            </t>
+                                        </tbody>
+                                        <tfoot>
+                                            <tr style="background:#f0f0f0; font-weight:bold;">
+                                                <td colspan="7" style="padding:6px 8px; border:1px solid #ccc; text-align:right;">
+                                                    <t t-if="is_1099">1099 Disbursement Total:</t><t t-else="">Event Pay Total:</t>
+                                                </td>
+                                                <td style="padding:6px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % ev_total"/></td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                    <p style="font-size:10px; color:#666; margin-top:3px;">
+                                        <t t-if="is_1099">1099 non-employee compensation — event labor at the call-out rate plus gratuity share, paid without tax withholding.</t>
+                                        <t t-else="">Event-rate pay for hours worked on lodge events (the department manager's call-out rate), plus any gratuity share — a second pay area on this timecard, separate from regular hourly pay.</t>
+                                    </p>
+                                </div>
+                            </t>
 
                             <!-- Digital approval / signature block -->
                             <t t-set="tc"
