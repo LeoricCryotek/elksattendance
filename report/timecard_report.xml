@@ -221,15 +221,18 @@
                                  (not an independent card). Falls back to the planned
                                  roster line when no clock-in was recorded. Labelled by
                                  the worker's pay category (1099 vs employee). -->
-                            <t t-set="ev_atts"
-                               t-value="records.filtered(lambda a: a.x_event_id and (a.x_event_pay or a.x_gratuity_share)) if 'x_event_pay' in records._fields else records.browse()"/>
-                            <t t-set="ev_lines" t-value="events_by_emp.get(employee)"/>
                             <t t-set="is_1099"
                                t-value="('x_pay_category' in employee._fields) and employee.x_pay_category == '1099'"/>
-                            <t t-if="ev_atts or ev_lines">
+                            <!-- The event (call-out) rate only PAYS 1099 contractors; W-2
+                                 employees are paid their normal wage for event hours, so
+                                 this priced area is shown for 1099 workers only. -->
+                            <t t-set="ev_atts"
+                               t-value="records.filtered(lambda a: a.x_event_id and a.x_event_pay) if 'x_event_pay' in records._fields else records.browse()"/>
+                            <t t-set="ev_lines" t-value="events_by_emp.get(employee) if is_1099 else None"/>
+                            <t t-if="is_1099 and (ev_atts or ev_lines)">
                                 <div style="margin-top:25px;">
                                     <div style="background:#003366; color:#fff; padding:5px 8px; font-weight:bold; font-size:12px;">
-                                        <t t-if="is_1099">1099 Event Pay</t><t t-else="">Event Pay (call-out rate)</t> — <span t-esc="employee.name"/>
+                                        1099 Event Pay — <span t-esc="employee.name"/>
                                     </div>
                                     <table style="width:100%; border-collapse:collapse; font-size:11px; margin-top:4px;">
                                         <thead>
@@ -295,11 +298,53 @@
                                         </tfoot>
                                     </table>
                                     <p style="font-size:10px; color:#666; margin-top:3px;">
-                                        <t t-if="is_1099">1099 non-employee compensation — event labor at the call-out rate plus gratuity share, paid without tax withholding.</t>
-                                        <t t-else="">Event-rate pay for hours worked on lodge events (the department manager's call-out rate), plus any gratuity share — a second pay area on this timecard, separate from regular hourly pay.</t>
+                                        1099 non-employee compensation — event labor at the call-out rate plus gratuity share, paid without tax withholding.
                                     </p>
                                 </div>
                             </t>
+
+                            <!-- ===== PAYMENT SUMMARY — who to pay &amp; how much ===== -->
+                            <t t-set="pay_event" t-value="sum(records.mapped('x_event_pay')) if 'x_event_pay' in records._fields else 0.0"/>
+                            <t t-set="pay_grat" t-value="sum(records.mapped('x_gratuity_share')) if 'x_gratuity_share' in records._fields else 0.0"/>
+                            <t t-set="pay_coord" t-value="sum(records.mapped('x_coordinator_fee_share')) if 'x_coordinator_fee_share' in records._fields else 0.0"/>
+                            <t t-set="pay_tips" t-value="sum(records.mapped('x_tip_amount')) if is_tipped else 0.0"/>
+                            <t t-set="pay_cash" t-value="pay_event + pay_grat + pay_coord + pay_tips"/>
+                            <div style="margin-top:25px; border:2px solid #003366;">
+                                <div style="background:#003366; color:#fff; padding:6px 10px; font-weight:bold; font-size:13px;">
+                                    PAYMENT SUMMARY — PAY TO: <span t-esc="employee.name"/>
+                                    <span style="font-weight:normal;"> (<t t-if="is_1099">1099 Contractor</t><t t-else="">Employee — W-2</t>)</span>
+                                </div>
+                                <table style="width:100%; border-collapse:collapse; font-size:12px;">
+                                    <tr>
+                                        <td style="padding:5px 10px;">Regular hours (paid at their wage through payroll)</td>
+                                        <td style="padding:5px 10px; text-align:right;"><span t-esc="wizard._format_hours(total_hours)"/> hrs</td>
+                                    </tr>
+                                    <tr t-if="pay_event" style="background:#f7f7f7;">
+                                        <td style="padding:5px 10px;">Event pay (1099 call-out rate)</td>
+                                        <td style="padding:5px 10px; text-align:right;"><span t-esc="'$%.2f' % pay_event"/></td>
+                                    </tr>
+                                    <tr t-if="pay_grat">
+                                        <td style="padding:5px 10px;">Gratuity</td>
+                                        <td style="padding:5px 10px; text-align:right;"><span t-esc="'$%.2f' % pay_grat"/></td>
+                                    </tr>
+                                    <tr t-if="pay_coord" style="background:#f7f7f7;">
+                                        <td style="padding:5px 10px;">Event Coordinator fee</td>
+                                        <td style="padding:5px 10px; text-align:right;"><span t-esc="'$%.2f' % pay_coord"/></td>
+                                    </tr>
+                                    <tr t-if="pay_tips">
+                                        <td style="padding:5px 10px;">Tips</td>
+                                        <td style="padding:5px 10px; text-align:right;"><span t-esc="'$%.2f' % pay_tips"/></td>
+                                    </tr>
+                                    <tr style="background:#c8e6c9; font-weight:bold; font-size:13px;">
+                                        <td style="padding:6px 10px;">CASH TO PAY THIS PERIOD (in addition to hourly wages)</td>
+                                        <td style="padding:6px 10px; text-align:right;"><span t-esc="'$%.2f' % pay_cash"/></td>
+                                    </tr>
+                                </table>
+                                <p style="font-size:10px; color:#666; margin:4px 10px;">
+                                    <t t-if="is_1099">1099 contractor — pay the cash total above (no tax withholding). Hours shown are for reference.</t>
+                                    <t t-else="">Pay the regular hours at this employee's wage through payroll, plus the cash total above (gratuity / coordinator fee / tips).</t>
+                                </p>
+                            </div>
 
                             <!-- Digital approval / signature block -->
                             <t t-set="tc"
