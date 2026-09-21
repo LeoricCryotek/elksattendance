@@ -80,6 +80,67 @@ class HrAttendance(models.Model):
     )
 
     # === HUMAN ===
+    # The Clover-synced tip total collected during THIS shift, and the approver's
+    # per-line choice of which tip counts for payroll — the kiosk-entered amount
+    # or the Clover amount. x_tip_payable is whichever they picked.
+    # === AI AGENT ===
+    # Needs payment_clover (clover.tip.entry). Clover tips are matched to the
+    # shift by timestamp window [check_in, check_out or now] (date is a UTC
+    # Datetime), excluding refunded / event-gratuity / unclaimed. x_tip_source is
+    # the approver's stored per-line pick (default 'entered'); it is NOT in the
+    # reopen/lock field sets, so setting it never un-approves the card.
+    x_clover_tip_amount = fields.Float(
+        "Clover Tips (Collected)", compute='_compute_x_clover_tip',
+        digits=(10, 2))
+    x_clover_available = fields.Boolean(compute='_compute_x_clover_tip')
+    x_tip_source = fields.Selection(
+        [('entered', 'Entered (kiosk)'),
+         ('clover', 'Clover'),
+         ('override', 'Manual override')],
+        string="Tip Source", default='entered', required=True, copy=False,
+        help="Which tip counts for payroll on this shift: the kiosk-entered "
+             "amount, the Clover-collected amount, or a manual amount the "
+             "approver types (override).")
+    x_tip_override_amount = fields.Float(
+        "Manual Tip Override", digits=(10, 2), default=0.0, copy=False,
+        help="Approver-entered tip for this shift, used when the tip source "
+             "is 'Manual override'.")
+    x_tip_payable = fields.Float(
+        "Payable Tip", compute='_compute_x_tip_payable', digits=(10, 2),
+        help="The tip paid for this shift, per the chosen source: Clover "
+             "amount, the manual override, or the kiosk-entered amount.")
+
+    @api.depends('employee_id', 'check_in', 'check_out')
+    def _compute_x_clover_tip(self):
+        Tip = (self.env['clover.tip.entry'].sudo()
+               if 'clover.tip.entry' in self.env else None)
+        for att in self:
+            amt = 0.0
+            if Tip is not None and att.employee_id and att.check_in:
+                end = att.check_out or fields.Datetime.now()
+                amt = sum(Tip.search([
+                    ('employee_id', '=', att.employee_id.id),
+                    ('date', '>=', att.check_in),
+                    ('date', '<=', end),
+                    ('is_refunded', '=', False),
+                    ('is_event_gratuity', '=', False),
+                    ('is_unclaimed', '=', False),
+                ]).mapped('amount'))
+            att.x_clover_tip_amount = amt
+            att.x_clover_available = bool(amt)
+
+    @api.depends('x_tip_source', 'x_tip_amount', 'x_clover_tip_amount',
+                 'x_tip_override_amount')
+    def _compute_x_tip_payable(self):
+        for att in self:
+            if att.x_tip_source == 'clover':
+                att.x_tip_payable = att.x_clover_tip_amount
+            elif att.x_tip_source == 'override':
+                att.x_tip_payable = att.x_tip_override_amount
+            else:
+                att.x_tip_payable = att.x_tip_amount
+
+    # === HUMAN ===
     # Whether a shift counts as PAID (payroll) hours or VOLUNTEER / CHARITY
     # hours. This is what the Hours Dashboard groups by, and it follows the same
     # rule as payroll: Volunteers-department or charity-tagged shifts are not paid.

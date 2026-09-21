@@ -35,7 +35,7 @@ The model uses ``portal.mixin`` so each record has a tokenised
 email link.
 """
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError, AccessError
@@ -80,6 +80,33 @@ class ElksTimecard(models.Model):
     shift_count = fields.Integer(compute='_compute_attendances')
     total_hours = fields.Float(compute='_compute_attendances')
     total_tips = fields.Float(compute='_compute_attendances')
+    # Split of total_tips: the kiosk-entered personal gratuity vs event
+    # gratuity/coordinator fees (which ride the card from elksevent).
+    x_entered_tips = fields.Float(
+        "Entered Tips (kiosk)", compute='_compute_attendances')
+    x_event_tips = fields.Float(
+        "Event Gratuity/Fees", compute='_compute_attendances')
+
+    # === HUMAN ===
+    # Period roll-ups of the PER-SHIFT tip choice. Each shift line carries the
+    # kiosk-entered tip and the Clover-collected tip, and the approver picks the
+    # source per line (see hr.attendance.x_tip_source); these just total those.
+    # === AI AGENT ===
+    # All non-stored, summed from attendance_ids in _compute_attendances so they
+    # always reflect the current per-line x_tip_source. x_clover_tips_total =
+    # sum of per-shift Clover; x_tips_payable = sum of per-shift chosen source.
+    x_clover_tips_total = fields.Float(
+        "Clover Tips (Collected)", compute='_compute_attendances',
+        digits=(12, 2))
+    x_tips_payable = fields.Float(
+        "Payable Tips", compute='_compute_attendances', digits=(12, 2),
+        help="Personal tips of record this period: the per-shift chosen source "
+             "(kiosk-entered or Clover). Event gratuity/fees are separate.")
+    x_tips_overridden = fields.Boolean(
+        compute='_compute_attendances',
+        help="True when payable personal tips differ from what the employee "
+             "entered at the kiosk (some line switched to Clover). Shown to the "
+             "employee on the portal, NOT on the printed timecard.")
 
     state = fields.Selection([
         ('draft', 'Draft'),
@@ -194,7 +221,17 @@ class ElksTimecard(models.Model):
                     if 'x_gratuity_share' in atts._fields else 0.0)
             coord = (sum(atts.mapped('x_coordinator_fee_share'))
                      if 'x_coordinator_fee_share' in atts._fields else 0.0)
+            tc.x_entered_tips = tips
+            tc.x_event_tips = grat + coord
             tc.total_tips = tips + grat + coord
+            # Per-shift Clover roll-ups: collected total, and the payable total
+            # from each line's chosen source (x_tip_source on hr.attendance).
+            has_tips = tc.employee_id.x_receives_tips
+            tc.x_clover_tips_total = (sum(atts.mapped('x_clover_tip_amount'))
+                                      if has_tips else 0.0)
+            tc.x_tips_payable = (sum(atts.mapped('x_tip_payable'))
+                                 if has_tips else 0.0)
+            tc.x_tips_overridden = abs(tc.x_tips_payable - tips) > 0.005
 
     # ------------------------------------------------------------------
     # Portal URL
@@ -351,6 +388,55 @@ class ElksTimecard(models.Model):
         """True if `user` is this card's Attendance approver."""
         self.ensure_one()
         return bool(self.approver_id and self.approver_id == user)
+
+    # === HUMAN ===
+    # The approver chooses, per shift line, whether that day's payable tip is the
+    # kiosk-entered amount or the Clover-collected amount.
+    # === AI AGENT ===
+    # Identity-gated (approver/officer). sources = {attendance_id: 'entered'|
+    # 'clover'}. Only lines belonging to this card are written (no smuggling ids);
+    # sudo write since portal users are read-only on hr.attendance.
+    def _elks_set_tip_sources(self, user, sources, overrides=None):
+        self.ensure_one()
+        if not (self._elks_is_approver_for(user) or self._is_officer(user)):
+            raise AccessError(_(
+                "Only the Attendance approver can set the tip source."))
+        overrides = overrides or {}
+        for att in self.attendance_ids:
+            vals = {}
+            src = sources.get(att.id)
+            if src in ('entered', 'clover', 'override') and src != att.x_tip_source:
+                vals['x_tip_source'] = src
+            if att.id in overrides and overrides[att.id] != att.x_tip_override_amount:
+                vals['x_tip_override_amount'] = overrides[att.id]
+            if vals:
+                att.sudo().write(vals)
+
+    # === HUMAN ===
+    # The approver corrects a shift's clock-in / clock-out directly from the
+    # portal (unlike the employee flow, which only suggests). Changing the times
+    # reopens the period for re-approval.
+    # === AI AGENT ===
+    # Identity-gated (approver/officer). Writes with sudo + elks_bypass_lock so
+    # the approver can fix even an approved (locked) period; the hr.attendance
+    # write-hook then reopens the covering card. Both datetimes are naive UTC.
+    def _elks_set_shift_times(self, user, attendance, check_in, check_out):
+        self.ensure_one()
+        if not (self._elks_is_approver_for(user) or self._is_officer(user)):
+            raise AccessError(_(
+                "Only the Attendance approver can adjust shift times."))
+        if attendance not in self.attendance_ids:
+            return
+        if check_in and check_out and check_out <= check_in:
+            raise UserError(_("Check-out must be after check-in."))
+        vals = {}
+        if check_in:
+            vals['check_in'] = check_in
+        if check_out:
+            vals['check_out'] = check_out
+        if vals:
+            attendance.sudo().with_context(
+                elks_bypass_lock=True).write(vals)
 
     def _elks_sign(self, user, role):
         """Record a signature as ``user`` in ``role`` ('employee'/'approver').

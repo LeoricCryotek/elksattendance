@@ -146,8 +146,10 @@
                                     <t t-foreach="records" t-as="att">
                                         <t t-set="hours" t-value="att.worked_hours or 0.0"/>
                                         <t t-set="total_hours" t-value="total_hours + hours"/>
+                                        <!-- Personal tip uses the approver's per-shift
+                                             source (x_tip_payable = entered or Clover). -->
                                         <t t-set="row_tip"
-                                           t-value="(att.x_tip_amount or 0.0 if is_tipped else 0.0) + (att.x_gratuity_share or 0.0 if 'x_gratuity_share' in att._fields else 0.0) + (att.x_coordinator_fee_share or 0.0 if 'x_coordinator_fee_share' in att._fields else 0.0)"/>
+                                           t-value="(att.x_tip_payable or 0.0 if is_tipped else 0.0) + (att.x_gratuity_share or 0.0 if 'x_gratuity_share' in att._fields else 0.0) + (att.x_coordinator_fee_share or 0.0 if 'x_coordinator_fee_share' in att._fields else 0.0)"/>
                                         <t t-if="show_tips">
                                             <t t-set="total_tips" t-value="total_tips + row_tip"/>
                                         </t>
@@ -213,6 +215,28 @@
                                     </tr>
                                 </tfoot>
                             </table>
+
+                            <!-- ===== TIPS SUMMARY (payable; Clover replaces entered) ===== -->
+                            <t t-set="tc"
+                               t-value="wizard.env['elks.timecard'].sudo().search([('employee_id', '=', employee.id), ('period_start', '=', wizard.date_from), ('period_end', '=', wizard.date_to)], limit=1)"/>
+                            <!-- Tips summary. The Clover-collected number is NOT shown
+                                 here — this report is also emailed to the employee, and
+                                 employees don't see the Clover sync figure. The payable
+                                 already reflects the approver's per-shift source choice. -->
+                            <t t-if="tc and employee.x_receives_tips">
+                                <div style="margin-top:15px;">
+                                    <table style="width:60%; border-collapse:collapse; font-size:11px;">
+                                        <tr>
+                                            <td style="padding:3px 8px;">Entered (kiosk) tips:</td>
+                                            <td style="padding:3px 8px; text-align:right;">$<span t-esc="'%.2f' % tc.x_entered_tips"/></td>
+                                        </tr>
+                                        <tr style="font-weight:bold; border-top:1px solid #333;">
+                                            <td style="padding:4px 8px;">Payable Tips:</td>
+                                            <td style="padding:4px 8px; text-align:right;">$<span t-esc="'%.2f' % tc.x_tips_payable"/></td>
+                                        </tr>
+                                    </table>
+                                </div>
+                            </t>
 
                             <!-- ===== EVENT PAY (call-out rate) — second area =====
                                  When a department manager puts someone on a certified
@@ -307,7 +331,9 @@
                             <t t-set="pay_event" t-value="sum(records.mapped('x_event_pay')) if 'x_event_pay' in records._fields else 0.0"/>
                             <t t-set="pay_grat" t-value="sum(records.mapped('x_gratuity_share')) if 'x_gratuity_share' in records._fields else 0.0"/>
                             <t t-set="pay_coord" t-value="sum(records.mapped('x_coordinator_fee_share')) if 'x_coordinator_fee_share' in records._fields else 0.0"/>
-                            <t t-set="pay_tips" t-value="sum(records.mapped('x_tip_amount')) if is_tipped else 0.0"/>
+                            <!-- Personal tips at the approver's per-shift source
+                                 (x_tip_payable = entered or Clover). -->
+                            <t t-set="pay_tips" t-value="sum(records.mapped('x_tip_payable')) if is_tipped else 0.0"/>
                             <t t-set="pay_cash" t-value="pay_event + pay_grat + pay_coord + pay_tips"/>
                             <div style="margin-top:25px; border:2px solid #003366;">
                                 <div style="background:#003366; color:#fff; padding:6px 10px; font-weight:bold; font-size:13px;">

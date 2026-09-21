@@ -33,7 +33,7 @@ from datetime import date, datetime, timedelta
 import pytz
 
 from odoo import http, fields, _
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, AccessError
 from odoo.http import request
 from odoo.tools import plaintext2html
 from odoo.addons.portal.controllers.portal import CustomerPortal, pager as portal_pager
@@ -256,6 +256,39 @@ class TimecardPortal(CustomerPortal):
             return request.redirect('%s%se=pending' % (back, sep))
         return request.redirect(kw.get('redirect') or '/my/timecard/%s' % timecard_id)
 
+    # === HUMAN ===
+    # The approver picks, per shift line, whether that day's payable tip is the
+    # kiosk-entered amount or the Clover amount. Approver / officer only.
+    # === AI AGENT ===
+    # Per-line selects arrive as form fields 'source_<attendance_id>' = entered|
+    # clover. Build {att_id: source} and hand to the model helper, which re-checks
+    # identity and only writes lines that belong to this card.
+    @http.route(['/my/timecard/<int:timecard_id>/tip-sources'],
+                type='http', auth='user', methods=['POST'], website=True)
+    def portal_timecard_tip_sources(self, timecard_id, **kw):
+        tc_sudo = self._elks_get_timecard(timecard_id)
+        if not tc_sudo:
+            return request.redirect('/my')
+        user = request.env.user
+        sources, overrides = {}, {}
+        for key, val in request.httprequest.form.items():
+            if key.startswith('source_'):
+                try:
+                    sources[int(key[len('source_'):])] = val
+                except ValueError:
+                    continue
+            elif key.startswith('override_'):
+                try:
+                    overrides[int(key[len('override_'):])] = float(val or 0.0)
+                except ValueError:
+                    continue
+        try:
+            tc_sudo._elks_set_tip_sources(user, sources, overrides)
+        except (UserError, AccessError):
+            pass
+        return request.redirect(
+            kw.get('redirect') or '/my/timecard/%s' % timecard_id)
+
     # ------------------------------------------------------------------
     # Per-line view + adjustment suggestion + per-line chat
     # === HUMAN ===
@@ -300,6 +333,7 @@ class TimecardPortal(CustomerPortal):
             'line_messages': messages,
             'is_owner': tc_sudo._elks_is_owner_for(user),
             'is_approver': tc_sudo._elks_is_approver_for(user),
+            'is_officer': tc_sudo._is_officer(user),
             # Requests are only allowed while the period is still open (draft)
             'can_request': tc_sudo._elks_is_owner_for(user) and tc_sudo.state == 'draft',
             'in_time': local_in.strftime('%H:%M') if local_in else '',
@@ -358,6 +392,50 @@ class TimecardPortal(CustomerPortal):
             return request.redirect(line_url + '?e=empty')
 
         tc_sudo._elks_create_suggestion(att, pin, pout, reason, user)
+        return request.redirect(line_url)
+
+    # === HUMAN ===
+    # The approver / officer edits a shift's clock-in / clock-out directly (not a
+    # suggestion — it changes the punch and reopens the period for re-approval).
+    # === AI AGENT ===
+    # Approver/officer only. Same HH:MM -> UTC conversion as the suggest route
+    # (times combined with the shift's local date). Model helper writes with a
+    # lock bypass so an approved period can still be corrected.
+    @http.route(['/my/timecard/<int:timecard_id>/line/<int:attendance_id>/set-times'],
+                type='http', auth='user', methods=['POST'], website=True)
+    def portal_timecard_set_times(self, timecard_id, attendance_id, **kw):
+        tc_sudo = self._elks_get_timecard(timecard_id)
+        if not tc_sudo:
+            return request.redirect('/my')
+        user = request.env.user
+        att = tc_sudo.attendance_ids.filtered(lambda a: a.id == attendance_id)
+        line_url = '/my/timecard/%s/line/%s' % (timecard_id, attendance_id)
+        if not (att and (tc_sudo._elks_is_approver_for(user)
+                         or tc_sudo._is_officer(user))):
+            return request.redirect(line_url)
+
+        tz = pytz.timezone(user.tz or 'UTC')
+        local_in = (fields.Datetime.context_timestamp(tc_sudo, att.check_in)
+                    if att.check_in else None)
+        base_date = local_in.date() if local_in else fields.Date.context_today(user)
+
+        def time_to_utc(time_str, add_day=0):
+            if not time_str:
+                return False
+            try:
+                t = datetime.strptime(time_str.strip(), '%H:%M').time()
+            except ValueError:
+                return False
+            naive = datetime.combine(base_date + timedelta(days=add_day), t)
+            return tz.localize(naive).astimezone(pytz.utc).replace(tzinfo=None)
+
+        next_day = kw.get('next_day') in ('1', 'on', 'true', 'True', 'yes')
+        nin = time_to_utc(kw.get('in_time'))
+        nout = time_to_utc(kw.get('out_time'), add_day=1 if next_day else 0)
+        try:
+            tc_sudo._elks_set_shift_times(user, att, nin, nout)
+        except (UserError, AccessError):
+            return request.redirect(line_url + '?e=badtime')
         return request.redirect(line_url)
 
     @http.route(['/my/timecard/<int:timecard_id>/line/<int:attendance_id>/message'],

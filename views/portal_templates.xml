@@ -85,7 +85,7 @@
                         <td class="text-end"
                             t-esc="'%d:%02d' % (int(att.worked_hours), int(round((att.worked_hours - int(att.worked_hours)) * 60)))"/>
                         <td t-if="tc.employee_id.x_receives_tips" class="text-end"
-                            t-esc="'$%.2f' % (att.x_tip_amount or 0.0)"/>
+                            t-esc="'$%.2f' % (att.x_tip_payable or 0.0)"/>
                         <td t-if="show_line_actions" class="text-end">
                             <a t-attf-href="/my/timecard/#{tc.id}/line/#{att.id}"
                                class="btn btn-sm btn-outline-secondary">View</a>
@@ -104,7 +104,7 @@
                         <td class="text-end"
                             t-esc="'%d:%02d' % (int(tc.total_hours), int(round((tc.total_hours - int(tc.total_hours)) * 60)))"/>
                         <td t-if="tc.employee_id.x_receives_tips" class="text-end"
-                            t-esc="'$%.2f' % tc.total_tips"/>
+                            t-esc="'$%.2f' % tc.x_tips_payable"/>
                         <td t-if="show_line_actions"/>
                     </tr>
                 </tfoot>
@@ -137,7 +137,7 @@
                 </div>
                 <div t-if="tc.employee_id.x_receives_tips" class="small">
                     <span class="text-muted">Tips </span>
-                    <strong t-esc="'$%.2f' % (att.x_tip_amount or 0.0)"/>
+                    <strong t-esc="'$%.2f' % (att.x_tip_payable or 0.0)"/>
                 </div>
                 <a t-if="show_line_actions"
                    t-attf-href="/my/timecard/#{tc.id}/line/#{att.id}"
@@ -149,7 +149,7 @@
                 <span>
                     <span t-esc="'%d:%02d' % (int(tc.total_hours), int(round((tc.total_hours - int(tc.total_hours)) * 60)))"/>
                     <t t-if="tc.employee_id.x_receives_tips">
-                        &#160;&#183;&#160;<span t-esc="'$%.2f' % tc.total_tips"/> tips
+                        &#160;&#183;&#160;<span t-esc="'$%.2f' % tc.x_tips_payable"/> tips
                     </t>
                 </span>
             </div>
@@ -229,6 +229,115 @@
                 </div>
             </div>
         </div>
+
+        <!-- ===== Gratuity: per-shift Kiosk/Clover/Override — MANAGER ONLY =====
+             Shown only to the approver/officer managing SOMEONE ELSE's card. The
+             employee (owner) never sees this table or the Clover figures; they
+             just see their final "Tips" (the payable) in the shift table above. -->
+        <t t-set="can_manage_tips"
+           t-value="(is_approver or tc._is_officer(user)) and not is_owner"/>
+        <t t-if="can_manage_tips and (tc.employee_id.x_receives_tips or tc.x_clover_tips_total)">
+            <div class="card mb-2">
+                <div class="card-body py-2">
+                    <h6 class="card-title mb-1">Gratuity / Tips</h6>
+                    <t t-set="can_see_clover" t-value="True"/>
+                    <t t-set="tip_editable" t-value="is_approver and tc.state != 'approved'"/>
+
+                    <!-- Approver: per-shift Kiosk / Clover / manual Override -->
+                    <form t-if="tip_editable"
+                          t-attf-action="/my/timecard/#{tc.id}/tip-sources" method="post">
+                        <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                        <p class="small text-muted mb-1">
+                            Pick the tip source for each shift — <strong>Kiosk</strong>,
+                            <strong>Clover</strong>, or a manual <strong>Override</strong>
+                            amount you type. The chosen amount is what's paid that day.
+                        </p>
+                        <div class="table-responsive">
+                            <table class="table table-sm mb-2 align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th class="text-end">Kiosk</th>
+                                        <th class="text-end">Clover</th>
+                                        <th class="text-end">Override $</th>
+                                        <th class="text-center">Source</th>
+                                        <th class="text-end">Payable</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr t-foreach="tc.attendance_ids" t-as="att">
+                                        <td><span t-field="att.check_in" t-options='{"format": "MM/dd/yyyy"}'/></td>
+                                        <td class="text-end">$<span t-esc="'%.2f' % (att.x_tip_amount or 0.0)"/></td>
+                                        <td class="text-end">$<span t-esc="'%.2f' % att.x_clover_tip_amount"/></td>
+                                        <td class="text-end">
+                                            <input type="number" step="0.01" min="0"
+                                                   t-attf-name="override_#{att.id}"
+                                                   t-att-value="'%.2f' % att.x_tip_override_amount"
+                                                   class="form-control form-control-sm text-end d-inline"
+                                                   style="width:90px;"/>
+                                        </td>
+                                        <td class="text-center">
+                                            <select t-attf-name="source_#{att.id}"
+                                                    class="form-select form-select-sm d-inline w-auto">
+                                                <option value="entered"
+                                                        t-att-selected="'selected' if att.x_tip_source == 'entered' else None">Kiosk</option>
+                                                <option value="clover"
+                                                        t-att-selected="'selected' if att.x_tip_source == 'clover' else None">Clover</option>
+                                                <option value="override"
+                                                        t-att-selected="'selected' if att.x_tip_source == 'override' else None">Override</option>
+                                            </select>
+                                        </td>
+                                        <td class="text-end fw-bold">$<span t-esc="'%.2f' % att.x_tip_payable"/></td>
+                                    </tr>
+                                </tbody>
+                                <tfoot>
+                                    <tr class="fw-bold">
+                                        <td class="text-end" colspan="5">Payable Tips:</td>
+                                        <td class="text-end">$<span t-esc="'%.2f' % tc.x_tips_payable"/></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                        <button type="submit" class="btn btn-outline-primary btn-sm">Save tip sources</button>
+                    </form>
+
+                    <!-- Read-only (employee, or once approved). The Clover column
+                         shows ONLY to the approver/officer, never to employees. -->
+                    <div t-else="" class="table-responsive">
+                        <table class="table table-sm mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th class="text-end">Entered</th>
+                                    <th t-if="can_see_clover" class="text-end">Clover</th>
+                                    <th class="text-end">Payable</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr t-foreach="tc.attendance_ids" t-as="att">
+                                    <td><span t-field="att.check_in" t-options='{"format": "MM/dd/yyyy"}'/></td>
+                                    <td class="text-end">$<span t-esc="'%.2f' % (att.x_tip_amount or 0.0)"/></td>
+                                    <td t-if="can_see_clover" class="text-end">$<span t-esc="'%.2f' % att.x_clover_tip_amount"/></td>
+                                    <td class="text-end fw-bold">
+                                        $<span t-esc="'%.2f' % att.x_tip_payable"/>
+                                        <span t-if="can_see_clover and att.x_tip_source == 'clover'"
+                                              class="badge text-bg-info ms-1">Clover</span>
+                                        <span t-if="can_see_clover and att.x_tip_source == 'override'"
+                                              class="badge text-bg-secondary ms-1">Override</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                            <tfoot>
+                                <tr class="fw-bold">
+                                    <td class="text-end" t-att-colspan="3 if can_see_clover else 2">Payable Tips:</td>
+                                    <td class="text-end">$<span t-esc="'%.2f' % tc.x_tips_payable"/></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </t>
     </template>
 
     <!-- Status badge helper -->
@@ -324,7 +433,7 @@
                         <td class="text-end"
                             t-esc="'%d:%02d' % (int(tc.total_hours), int(round((tc.total_hours - int(tc.total_hours)) * 60)))"/>
                         <td t-if="show_tips" class="text-end"
-                            t-esc="('$%.2f' % tc.total_tips) if tc.employee_id.x_receives_tips else ''"/>
+                            t-esc="('$%.2f' % tc.x_tips_payable) if tc.employee_id.x_receives_tips else ''"/>
                         <td class="text-center">
                             <t t-call="elksattendance.portal_timecard_badge"/>
                         </td>
@@ -346,6 +455,7 @@
             <t t-set="tc" t-value="timecard"/>
             <t t-set="is_owner" t-value="timecard._elks_is_owner_for(user)"/>
             <t t-set="is_approver" t-value="timecard._elks_is_approver_for(user)"/>
+            <t t-set="is_officer" t-value="timecard._is_officer(user)"/>
 
             <div class="d-flex justify-content-between align-items-center mt-3 mb-2">
                 <h4 class="mb-0">
@@ -361,7 +471,9 @@
                 <t t-call="elksattendance.portal_timecard_badge"/>
             </div>
 
-            <t t-set="show_line_actions" t-value="is_owner"/>
+            <!-- Owner reaches the per-line correction page; approver/officer reach
+                 the per-line direct time-edit page — both via the View link. -->
+            <t t-set="show_line_actions" t-value="is_owner or is_approver or is_officer"/>
             <div class="card mb-3">
                 <t t-call="elksattendance.portal_timecard_shift_table"/>
             </div>
@@ -487,8 +599,104 @@
                     <td t-esc="'%d:%02d' % (int(att.worked_hours), int(round((att.worked_hours - int(att.worked_hours)) * 60)))"/></tr>
                 <tr t-if="timecard.employee_id.x_receives_tips">
                     <th>Tips</th>
-                    <td t-esc="'$%.2f' % (att.x_tip_amount or 0.0)"/></tr>
+                    <td t-esc="'$%.2f' % (att.x_tip_payable or 0.0)"/></tr>
             </table>
+
+            <!-- Approver / officer managing someone else's card: correct the punch
+                 directly (not a suggestion). Hidden when viewing your OWN shift. -->
+            <t t-if="(is_approver or is_officer) and not is_owner">
+                <h5 class="mt-4">Adjust Times (Supervisor)</h5>
+                <p class="text-muted mb-2">
+                    As the approver you can correct this shift's clock-in/out
+                    directly. Saving changes the punch and reopens the period for
+                    re-approval.
+                </p>
+                <div t-if="error == 'badtime'" class="alert alert-warning" role="alert">
+                    Couldn't save — check that check-out is after check-in.
+                </div>
+                <form method="post" class="row g-3"
+                      t-attf-action="/my/timecard/#{timecard.id}/line/#{att.id}/set-times">
+                    <input type="hidden" name="csrf_token"
+                           t-att-value="request.csrf_token()"/>
+                    <div class="col-6 col-md-4">
+                        <label class="form-label">Check-In Time</label>
+                        <input type="time" name="in_time" class="form-control"
+                               t-att-value="in_time"/>
+                    </div>
+                    <div class="col-6 col-md-4">
+                        <label class="form-label">Check-Out Time</label>
+                        <input type="time" name="out_time" class="form-control"
+                               t-att-value="out_time"/>
+                    </div>
+                    <div class="col-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox"
+                                   name="next_day" value="1" id="next_day_sup"
+                                   t-att-checked="next_day_default"/>
+                            <label class="form-check-label" for="next_day_sup">
+                                Check-out is the next day (overnight shift)
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-warning">
+                            Save corrected times
+                        </button>
+                        <a t-attf-href="/my/timecard/#{timecard.id}"
+                           class="btn btn-link">Back to timecard</a>
+                    </div>
+                </form>
+            </t>
+
+            <!-- Approver / officer: pick this shift's tip source (Kiosk / Clover /
+                 manual Override) right here on the line. Posts one line back to
+                 the shared tip-sources route and returns to this page. -->
+            <t t-if="(is_approver or is_officer) and not is_owner and timecard.employee_id.x_receives_tips">
+                <h5 class="mt-4">Tip Source (Supervisor)</h5>
+                <p class="text-muted mb-2">
+                    Choose which tip counts for this shift — <strong>Kiosk</strong>,
+                    <strong>Clover</strong>, or a manual <strong>Override</strong>
+                    amount you enter.
+                </p>
+                <form method="post" class="row g-3"
+                      t-attf-action="/my/timecard/#{timecard.id}/tip-sources">
+                    <input type="hidden" name="csrf_token"
+                           t-att-value="request.csrf_token()"/>
+                    <input type="hidden" name="redirect"
+                           t-attf-value="/my/timecard/#{timecard.id}/line/#{att.id}"/>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label">Kiosk</label>
+                        <div class="form-control-plaintext">$<span t-esc="'%.2f' % (att.x_tip_amount or 0.0)"/></div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label">Clover</label>
+                        <div class="form-control-plaintext">$<span t-esc="'%.2f' % att.x_clover_tip_amount"/></div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label">Override $</label>
+                        <input type="number" step="0.01" min="0"
+                               t-attf-name="override_#{att.id}"
+                               t-att-value="'%.2f' % att.x_tip_override_amount"
+                               class="form-control"/>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label">Use</label>
+                        <select t-attf-name="source_#{att.id}" class="form-select">
+                            <option value="entered"
+                                    t-att-selected="'selected' if att.x_tip_source == 'entered' else None">Kiosk</option>
+                            <option value="clover"
+                                    t-att-selected="'selected' if att.x_tip_source == 'clover' else None">Clover</option>
+                            <option value="override"
+                                    t-att-selected="'selected' if att.x_tip_source == 'override' else None">Manual override</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary">Save tip choice</button>
+                        <span class="ms-2 text-muted">Currently paying:
+                            <strong>$<span t-esc="'%.2f' % att.x_tip_payable"/></strong></span>
+                    </div>
+                </form>
+            </t>
 
             <t t-if="can_request">
                 <h5 class="mt-4">Request a Time Correction</h5>
