@@ -422,9 +422,11 @@ class ElksTimecard(models.Model):
     # write-hook then reopens the covering card. Both datetimes are naive UTC.
     def _elks_set_shift_times(self, user, attendance, check_in, check_out):
         self.ensure_one()
-        if not (self._elks_is_approver_for(user) or self._is_officer(user)):
+        is_mgr = self._elks_is_approver_for(user) or self._is_officer(user)
+        is_owner = self._elks_is_owner_for(user)
+        if not (is_mgr or is_owner):
             raise AccessError(_(
-                "Only the Attendance approver can adjust shift times."))
+                "You can't adjust times on this timecard."))
         if attendance not in self.attendance_ids:
             return
         if check_in and check_out and check_out <= check_in:
@@ -435,6 +437,9 @@ class ElksTimecard(models.Model):
         if check_out:
             vals['check_out'] = check_out
         if vals:
+            # bypass the lock: a manager may fix an approved period; the owner
+            # path is already gated to non-approved periods above. The write
+            # hook reopens the card so the correction goes back for approval.
             attendance.sudo().with_context(
                 elks_bypass_lock=True).write(vals)
 

@@ -410,8 +410,11 @@ class TimecardPortal(CustomerPortal):
         user = request.env.user
         att = tc_sudo.attendance_ids.filtered(lambda a: a.id == attendance_id)
         line_url = '/my/timecard/%s/line/%s' % (timecard_id, attendance_id)
+        # Owner may self-correct (model limits that to non-approved periods);
+        # approver/officer may correct any time.
         if not (att and (tc_sudo._elks_is_approver_for(user)
-                         or tc_sudo._is_officer(user))):
+                         or tc_sudo._is_officer(user)
+                         or tc_sudo._elks_is_owner_for(user))):
             return request.redirect(line_url)
 
         tz = pytz.timezone(user.tz or 'UTC')
