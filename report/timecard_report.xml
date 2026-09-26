@@ -223,15 +223,14 @@
                                  here — this report is also emailed to the employee, and
                                  employees don't see the Clover sync figure. The payable
                                  already reflects the approver's per-shift source choice. -->
+                            <!-- Only the supervisor-approved (payable) tip total is
+                                 shown — the per-shift Tips column above already
+                                 reflects the approver's chosen source per day. -->
                             <t t-if="tc and employee.x_receives_tips">
                                 <div style="margin-top:15px;">
                                     <table style="width:60%; border-collapse:collapse; font-size:11px;">
-                                        <tr>
-                                            <td style="padding:3px 8px;">Entered (kiosk) tips:</td>
-                                            <td style="padding:3px 8px; text-align:right;">$<span t-esc="'%.2f' % tc.x_entered_tips"/></td>
-                                        </tr>
                                         <tr style="font-weight:bold; border-top:1px solid #333;">
-                                            <td style="padding:4px 8px;">Payable Tips:</td>
+                                            <td style="padding:4px 8px;">Tips (approved by supervisor):</td>
                                             <td style="padding:4px 8px; text-align:right;">$<span t-esc="'%.2f' % tc.x_tips_payable"/></td>
                                         </tr>
                                     </table>
@@ -327,50 +326,13 @@
                                 </div>
                             </t>
 
-                            <!-- ===== PAYMENT SUMMARY — who to pay &amp; how much ===== -->
-                            <t t-set="pay_event" t-value="sum(records.mapped('x_event_pay')) if 'x_event_pay' in records._fields else 0.0"/>
-                            <t t-set="pay_grat" t-value="sum(records.mapped('x_gratuity_share')) if 'x_gratuity_share' in records._fields else 0.0"/>
-                            <t t-set="pay_coord" t-value="sum(records.mapped('x_coordinator_fee_share')) if 'x_coordinator_fee_share' in records._fields else 0.0"/>
-                            <!-- Personal tips at the approver's per-shift source
-                                 (x_tip_payable = entered or Clover). -->
-                            <t t-set="pay_tips" t-value="sum(records.mapped('x_tip_payable')) if is_tipped else 0.0"/>
-                            <t t-set="pay_cash" t-value="pay_event + pay_grat + pay_coord + pay_tips"/>
-                            <div style="margin-top:25px; border:2px solid #003366;">
-                                <div style="background:#003366; color:#fff; padding:6px 10px; font-weight:bold; font-size:13px;">
-                                    PAYMENT SUMMARY — PAY TO: <span t-esc="employee.name"/>
-                                    <span style="font-weight:normal;"> (<t t-if="is_1099">1099 Contractor</t><t t-else="">Employee — W-2</t>)</span>
-                                </div>
-                                <table style="width:100%; border-collapse:collapse; font-size:12px;">
-                                    <tr>
-                                        <td style="padding:5px 10px;">Regular hours (paid at their wage through payroll)</td>
-                                        <td style="padding:5px 10px; text-align:right;"><span t-esc="wizard._format_hours(total_hours)"/> hrs</td>
-                                    </tr>
-                                    <tr t-if="pay_event" style="background:#f7f7f7;">
-                                        <td style="padding:5px 10px;">Event pay (1099 call-out rate)</td>
-                                        <td style="padding:5px 10px; text-align:right;"><span t-esc="'$%.2f' % pay_event"/></td>
-                                    </tr>
-                                    <tr t-if="pay_grat">
-                                        <td style="padding:5px 10px;">Gratuity</td>
-                                        <td style="padding:5px 10px; text-align:right;"><span t-esc="'$%.2f' % pay_grat"/></td>
-                                    </tr>
-                                    <tr t-if="pay_coord" style="background:#f7f7f7;">
-                                        <td style="padding:5px 10px;">Event Coordinator fee</td>
-                                        <td style="padding:5px 10px; text-align:right;"><span t-esc="'$%.2f' % pay_coord"/></td>
-                                    </tr>
-                                    <tr t-if="pay_tips">
-                                        <td style="padding:5px 10px;">Tips</td>
-                                        <td style="padding:5px 10px; text-align:right;"><span t-esc="'$%.2f' % pay_tips"/></td>
-                                    </tr>
-                                    <tr style="background:#c8e6c9; font-weight:bold; font-size:13px;">
-                                        <td style="padding:6px 10px;">CASH TO PAY THIS PERIOD (in addition to hourly wages)</td>
-                                        <td style="padding:6px 10px; text-align:right;"><span t-esc="'$%.2f' % pay_cash"/></td>
-                                    </tr>
-                                </table>
-                                <p style="font-size:10px; color:#666; margin:4px 10px;">
-                                    <t t-if="is_1099">1099 contractor — pay the cash total above (no tax withholding). Hours shown are for reference.</t>
-                                    <t t-else="">Pay the regular hours at this employee's wage through payroll, plus the cash total above (gratuity / coordinator fee / tips).</t>
-                                </p>
-                            </div>
+                            <!--
+                                Payment summary block removed per user request
+                                — the timecard now shows only the approved
+                                tips total (see "Payable Tips" row in the
+                                summary table above). Hourly wages are
+                                handled by payroll outside of this report.
+                            -->
 
                             <!-- Digital approval / signature block -->
                             <t t-set="tc"
