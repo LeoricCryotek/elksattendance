@@ -290,7 +290,8 @@ class ElksTimecard(models.Model):
         """
         if not employee or self._elks_is_volunteer(employee):
             return self.browse()
-        ref_date = ref_date or fields.Date.context_today(self)
+        ref_date = ref_date or self.env[
+            'elksattendance.timecard.cron']._lodge_today()
         start, end = self.env['elksattendance.timecard.cron']._get_current_period(
             ref_date, self._frequency())
         tc = self.sudo().search([
@@ -327,13 +328,13 @@ class ElksTimecard(models.Model):
             return
         Cron = self.env['elksattendance.timecard.cron']
         freq = self._frequency()
-        today = fields.Date.context_today(self)
+        today = Cron._lodge_today()
         self._get_or_create(employee, today)
         atts = self.env['hr.attendance'].sudo().search(
             Cron._payroll_domain(date(2000, 1, 1), today, employee))
         seen = set()
         for att in atts:
-            d = fields.Date.context_today(self, att.check_in)
+            d = Cron._lodge_date(att.check_in)
             key = Cron._get_current_period(d, freq)
             if key not in seen:
                 seen.add(key)
@@ -551,7 +552,7 @@ class ElksTimecard(models.Model):
         """
         Cron = self.env['elksattendance.timecard.cron']
         freq = self._frequency()
-        today = fields.Date.context_today(self)
+        today = Cron._lodge_today()
         cur_start, _cur_end = Cron._get_current_period(today, freq)
         # Start of the period BEFORE the current one = the grace boundary.
         prev_start, _prev_end = Cron._get_current_period(
@@ -636,7 +637,7 @@ class ElksTimecard(models.Model):
         for employee, check_in in snapshot:
             if not employee or not check_in:
                 continue
-            ref = fields.Date.context_today(self, check_in)
+            ref = self.env['elksattendance.timecard.cron']._lodge_date(check_in)
             tcs = self.sudo().search([
                 ('employee_id', '=', employee.id),
                 ('period_start', '<=', ref),

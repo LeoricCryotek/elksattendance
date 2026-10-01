@@ -321,7 +321,7 @@ class HrAttendance(models.Model):
         self.ensure_one()
         if not (self.employee_id and self.check_in):
             return self.env["elks.timecard"]
-        ref = fields.Date.context_today(self, self.check_in)
+        ref = self.env['elksattendance.timecard.cron']._lodge_date(self.check_in)
         return self.env["elks.timecard"]._get_or_create(self.employee_id, ref)
 
     def _elks_find_timecard(self):
@@ -330,7 +330,7 @@ class HrAttendance(models.Model):
         Timecard = self.env["elks.timecard"]
         if not (self.employee_id and self.check_in):
             return Timecard
-        ref = fields.Date.context_today(self, self.check_in)
+        ref = self.env['elksattendance.timecard.cron']._lodge_date(self.check_in)
         start, end = self.env["elksattendance.timecard.cron"]._get_current_period(
             ref, Timecard._frequency())
         return Timecard.sudo().search([

@@ -43,6 +43,8 @@ import calendar
 import logging
 from datetime import datetime, time, timedelta
 
+import pytz
+
 from odoo import api, fields, models, _
 
 _logger = logging.getLogger(__name__)
@@ -144,9 +146,18 @@ class TimecardCron(models.AbstractModel):
         Excludes the Volunteers department and any charity-tagged hours
         (those belong on the charity GL report, not payroll).
         """
+        # Match punches by the period's LODGE-LOCAL day bounds converted to UTC,
+        # so an evening shift near a boundary counts on its local-date period
+        # (check_in is stored naive-UTC). Using naive UTC bounds here was half of
+        # the "same day, different periods" bug.
+        tz = self._lodge_tz()
+        start_utc = tz.localize(datetime.combine(date_from, time.min)).astimezone(
+            pytz.utc).replace(tzinfo=None)
+        end_utc = tz.localize(datetime.combine(date_to, time.max)).astimezone(
+            pytz.utc).replace(tzinfo=None)
         domain = [
-            ('check_in', '>=', datetime.combine(date_from, time.min)),
-            ('check_in', '<=', datetime.combine(date_to, time.max)),
+            ('check_in', '>=', start_utc),
+            ('check_in', '<=', end_utc),
             ('employee_id.department_id.name', '!=', 'Volunteers'),
             ('x_charity_task_id', '=', False),
         ]
@@ -175,11 +186,16 @@ class TimecardCron(models.AbstractModel):
             date_to = today - timedelta(days=1)         # Sunday
             return (date_to - timedelta(days=6), date_to)
         elif frequency == 'semi_monthly':
+            # The just-completed period is sent on the 1st (prior 2nd half) and on
+            # the first day of the 2nd half. Cut-over aware: new split starts the
+            # 2nd half on the 15th; legacy on the 16th.
+            half = self._semi_monthly_first_half_end(today)
+            second_start = half + 1  # 15 (new) or 16 (legacy)
             if today.day == 1:
                 prev_last = today - timedelta(days=1)
-                return (prev_last.replace(day=16), prev_last)
-            elif today.day == 16:
-                return (today.replace(day=1), today.replace(day=15))
+                return (prev_last.replace(day=second_start), prev_last)
+            elif today.day == second_start:
+                return (today.replace(day=1), today.replace(day=half))
             return None
         elif frequency == 'monthly':
             if today.day != 1:
@@ -187,6 +203,60 @@ class TimecardCron(models.AbstractModel):
             prev_last = today - timedelta(days=1)
             return (prev_last.replace(day=1), prev_last)
         return None
+
+    # === HUMAN ===
+    # The ONE timezone the lodge's pay periods are figured in. A shift's pay
+    # period is decided by its LOCAL calendar date here — never the browser or
+    # server timezone of whoever happens to open the page — so the same shift
+    # always lands in the same period for everyone.
+    # === AI AGENT ===
+    # Deterministic (does NOT read context/user tz — that's what caused "same day,
+    # different periods"): company partner tz -> config param -> Pacific default.
+    # _lodge_date converts a naive-UTC datetime to its lodge-local date; used for
+    # ALL period bucketing. (Report DISPLAY tz is separate — see wizard._report_tz.)
+    @api.model
+    def _lodge_tz(self):
+        name = (self.env.company.partner_id.tz
+                or self.env['ir.config_parameter'].sudo().get_param(
+                    'elksattendance.report_timezone')
+                or 'America/Los_Angeles')
+        try:
+            return pytz.timezone(name)
+        except Exception:  # noqa: BLE001 - bad config -> safe default
+            return pytz.timezone('America/Los_Angeles')
+
+    @api.model
+    def _lodge_date(self, dt):
+        """Lodge-local date of a naive-UTC datetime (False if dt is falsy)."""
+        if not dt:
+            return False
+        return pytz.utc.localize(dt).astimezone(self._lodge_tz()).date()
+
+    @api.model
+    def _lodge_today(self):
+        """Today's date in the lodge timezone."""
+        return self._lodge_date(fields.Datetime.now())
+
+    # === HUMAN ===
+    # The lodge's semi-monthly split is 1st-14th / 15th-EOM. To avoid re-dating
+    # already-run periods, the new split only applies from a cut-over date set in
+    # Settings (config param 'elksattendance.semi_monthly_cutover', e.g. the next
+    # period start). Dates BEFORE the cut-over keep the old 1st-15th / 16th-EOM
+    # split, so previously approved/paid periods are never altered.
+    # === AI AGENT ===
+    # Returns the last day of the FIRST half for a given ref_date: 14 on/after the
+    # cut-over, else 15 (legacy). No cut-over set -> new split everywhere.
+    @api.model
+    def _semi_monthly_first_half_end(self, ref_date):
+        val = self.env['ir.config_parameter'].sudo().get_param(
+            'elksattendance.semi_monthly_cutover')
+        cutover = False
+        if val:
+            try:
+                cutover = fields.Date.to_date(val)
+            except Exception:  # noqa: BLE001
+                cutover = False
+        return 14 if (not cutover or ref_date >= cutover) else 15
 
     @api.model
     def _get_current_period(self, ref_date, frequency):
@@ -197,11 +267,12 @@ class TimecardCron(models.AbstractModel):
         elif frequency == 'monthly':
             last = calendar.monthrange(ref_date.year, ref_date.month)[1]
             return (ref_date.replace(day=1), ref_date.replace(day=last))
-        # semi_monthly (default)
-        if ref_date.day <= 15:
-            return (ref_date.replace(day=1), ref_date.replace(day=15))
+        # semi_monthly: 1st-14th / 15th-EOM (cut-over aware; legacy = 1st-15th/16th).
+        half = self._semi_monthly_first_half_end(ref_date)
+        if ref_date.day <= half:
+            return (ref_date.replace(day=1), ref_date.replace(day=half))
         last = calendar.monthrange(ref_date.year, ref_date.month)[1]
-        return (ref_date.replace(day=16), ref_date.replace(day=last))
+        return (ref_date.replace(day=half + 1), ref_date.replace(day=last))
 
     # ==================================================================
     # PDF + email building
@@ -373,7 +444,7 @@ class TimecardCron(models.AbstractModel):
                          and emp.department_id.name == 'Volunteers')
             )
             if eligible:
-                ref_date = fields.Date.context_today(self, att.check_out)
+                ref_date = self._lodge_date(att.check_out)
                 date_from, date_to = self._get_current_period(ref_date, frequency)
                 pdf = self._generate_timecard_pdf(
                     date_from, date_to, employee=emp)
