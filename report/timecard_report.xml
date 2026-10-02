@@ -116,7 +116,14 @@
                             <!-- .get: an event-only worker (1099 pay, no clocked
                                  hours) has no attendance recordset in grouped. -->
                             <t t-set="att_recs" t-value="grouped.get(employee) or wizard.env['hr.attendance']"/>
-                            <t t-set="records" t-value="att_recs.sorted(key=lambda a: a.check_in)"/>
+                            <!-- Event shifts are paid at the call-out (event) rate
+                                 INSTEAD of the normal wage, so pull them out of the
+                                 regular-hours table and price them in the Event Pay
+                                 section below. rate>0 means a certified department
+                                 call-out matched this shift for this person (any
+                                 pay category). -->
+                            <t t-set="elks_ev_atts" t-value="att_recs.filtered(lambda a: a._elks_effective_event_rate()[0] &gt; 0)"/>
+                            <t t-set="records" t-value="(att_recs - elks_ev_atts).sorted(key=lambda a: a.check_in)"/>
                             <t t-set="total_hours" t-value="0"/>
                             <t t-set="is_tipped" t-value="employee.x_receives_tips"/>
                             <!-- Event gratuity (elksevent) rides on the timecard even
@@ -230,24 +237,19 @@
                                t-value="wizard.env['elks.timecard'].sudo().search([('employee_id', '=', employee.id), ('period_start', '=', wizard.date_from), ('period_end', '=', wizard.date_to)], limit=1)"/>
 
                             <!-- ===== EVENT PAY (call-out rate) — second area =====
-                                 When a department manager puts someone on a certified
-                                 call-out, their event-tagged clock-ins are paid at the
-                                 EVENT RATE as a second area on this same timecard
-                                 (not an independent card). Falls back to the planned
-                                 roster line when no clock-in was recorded. Labelled by
-                                 the worker's pay category (1099 vs employee). -->
+                                 Clocked shifts matched to a certified department call-out
+                                 are paid at the EVENT RATE instead of the normal wage, for
+                                 ANY worker (these shifts were pulled out of the regular
+                                 hours above). A 1099 who was rostered but never clocked in
+                                 falls back to the planned roster line. -->
                             <t t-set="is_1099"
                                t-value="('x_pay_category' in employee._fields) and employee.x_pay_category == '1099'"/>
-                            <!-- The event (call-out) rate only PAYS 1099 contractors; W-2
-                                 employees are paid their normal wage for event hours, so
-                                 this priced area is shown for 1099 workers only. -->
-                            <t t-set="ev_atts"
-                               t-value="records.filtered(lambda a: a.x_event_id and a.x_event_pay) if 'x_event_pay' in records._fields else records.browse()"/>
-                            <t t-set="ev_lines" t-value="events_by_emp.get(employee) if is_1099 else None"/>
-                            <t t-if="is_1099 and (ev_atts or ev_lines)">
+                            <t t-set="ev_lines"
+                               t-value="events_by_emp.get(employee) if (is_1099 and not elks_ev_atts) else None"/>
+                            <t t-if="elks_ev_atts or ev_lines">
                                 <div style="margin-top:25px;">
                                     <div style="background:#003366; color:#fff; padding:5px 8px; font-weight:bold; font-size:12px;">
-                                        1099 Event Pay — <span t-esc="employee.name"/>
+                                        <t t-if="is_1099">1099 Event Pay — </t><t t-else="">Event Pay (call-out rate) — </t><span t-esc="employee.name"/>
                                     </div>
                                     <table style="width:100%; border-collapse:collapse; font-size:11px; margin-top:4px;">
                                         <thead>
@@ -264,19 +266,20 @@
                                         </thead>
                                         <tbody>
                                             <t t-set="ev_total" t-value="0.0"/>
-                                            <t t-if="ev_atts">
-                                                <!-- Actual clocked event shifts at the event rate. -->
-                                                <t t-foreach="ev_atts" t-as="att">
-                                                    <t t-set="labor" t-value="att.x_event_pay or 0.0"/>
-                                                    <t t-set="etips" t-value="att.x_gratuity_share or 0.0"/>
+                                            <t t-if="elks_ev_atts">
+                                                <!-- Clocked event shifts at the matched call-out rate. -->
+                                                <t t-foreach="elks_ev_atts" t-as="att">
+                                                    <t t-set="er" t-value="att._elks_effective_event_rate()"/>
+                                                    <t t-set="labor" t-value="er[1]"/>
+                                                    <t t-set="etips" t-value="(att.x_gratuity_share or 0.0) if 'x_gratuity_share' in att._fields else 0.0"/>
                                                     <t t-set="line_total" t-value="labor + etips"/>
                                                     <t t-set="ev_total" t-value="ev_total + line_total"/>
                                                     <tr>
                                                         <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="att.check_in and att.check_in.strftime('%m/%d/%Y') or ''"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="att.x_event_id.name or ''"/></td>
-                                                        <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="dict(att._fields['x_event_role'].selection).get(att.x_event_role, att.x_event_role or '')"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="(dict(att._fields['x_event_role'].selection).get(att.x_event_role, att.x_event_role) or '') if 'x_event_role' in att._fields else ''"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="wizard._format_hours(att.worked_hours or 0.0)"/></td>
-                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % (att.x_event_rate or 0.0)"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % er[0]"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % labor"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % etips"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right; font-weight:bold;"><span t-esc="'$%.2f' % line_total"/></td>
@@ -284,7 +287,7 @@
                                                 </t>
                                             </t>
                                             <t t-else="">
-                                                <!-- No clock-in: fall back to the planned certified roster. -->
+                                                <!-- No clock-in (1099 only): fall back to the planned certified roster. -->
                                                 <t t-foreach="ev_lines" t-as="el">
                                                     <t t-set="labor" t-value="el.raw_cost or 0.0"/>
                                                     <t t-set="etips" t-value="el.gratuity_share or 0.0"/>
@@ -313,7 +316,8 @@
                                         </tfoot>
                                     </table>
                                     <p style="font-size:10px; color:#666; margin-top:3px;">
-                                        1099 non-employee compensation — event labor at the call-out rate plus gratuity share, paid without tax withholding.
+                                        <t t-if="is_1099">1099 non-employee compensation — event labor at the call-out rate plus gratuity share, paid without tax withholding.</t>
+                                        <t t-else="">Paid at the event (call-out) rate in place of the normal wage for these shifts; event hours are excluded from the regular hours above.</t>
                                     </p>
                                 </div>
                             </t>

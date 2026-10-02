@@ -141,6 +141,42 @@ class HrAttendance(models.Model):
                 att.x_tip_payable = att.x_tip_amount
 
     # === HUMAN ===
+    # The special event (call-out) pay rate for this shift, for ANY worker — a
+    # shift linked to a department call-out whose certified roster includes this
+    # person. Event shifts are paid at THIS rate instead of the normal wage, so
+    # the timecard shows them separately and pulls them out of regular hours.
+    # === AI AGENT ===
+    # elksevent only PRICES 1099 (its x_event_pay/_rate are 0 for W-2); this gives
+    # the rate for W-2 too, mirroring elksevent's match: certified callout line for
+    # (event, employee), department by role when known. Plain method (not a field)
+    # so it stays safe when elksevent isn't installed. Returns (rate, pay).
+    def _elks_effective_event_rate(self):
+        self.ensure_one()
+        if 'x_event_id' not in self._fields \
+                or 'elks.event.callout.line' not in self.env:
+            return 0.0, 0.0
+        if not (self.x_event_id and self.employee_id):
+            return 0.0, 0.0
+        Line = self.env['elks.event.callout.line'].sudo()
+        domain = [
+            ('callout_id.event_id', '=', self.x_event_id.id),
+            ('callout_id.state', '=', 'certified'),
+            ('employee_id', '=', self.employee_id.id),
+        ]
+        role_dept = {'bartender': 'bar', 'kitchen': 'kitchen',
+                     'custodial': 'custodial'}
+        dept = (role_dept.get(self.x_event_role)
+                if 'x_event_role' in self._fields else None)
+        line = Line.browse()
+        if dept:
+            line = Line.search(
+                domain + [('callout_id.department', '=', dept)], limit=1)
+        if not line:
+            line = Line.search(domain, limit=1)
+        rate = line.rate or 0.0
+        return rate, (self.worked_hours or 0.0) * rate
+
+    # === HUMAN ===
     # Whether a shift counts as PAID (payroll) hours or VOLUNTEER / CHARITY
     # hours. This is what the Hours Dashboard groups by, and it follows the same
     # rule as payroll: Volunteers-department or charity-tagged shifts are not paid.
