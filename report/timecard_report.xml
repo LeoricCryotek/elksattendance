@@ -246,6 +246,9 @@
                                t-value="('x_pay_category' in employee._fields) and employee.x_pay_category == '1099'"/>
                             <t t-set="ev_lines"
                                t-value="events_by_emp.get(employee) if (is_1099 and not elks_ev_atts) else None"/>
+                            <!-- Event tips (gratuity pool share) accumulate here so they
+                                 can be rolled into the single pay-period tips total below. -->
+                            <t t-set="ev_tips_total" t-value="0.0"/>
                             <t t-if="elks_ev_atts or ev_lines">
                                 <div style="margin-top:25px;">
                                     <div style="background:#003366; color:#fff; padding:5px 8px; font-weight:bold; font-size:12px;">
@@ -261,6 +264,7 @@
                                                 <th style="padding:5px 8px; border:1px solid #ccc; text-align:left;">Event</th>
                                                 <th style="padding:5px 8px; border:1px solid #ccc; text-align:right;">Hours</th>
                                                 <th style="padding:5px 8px; border:1px solid #ccc; text-align:right;">Event Rate/hr</th>
+                                                <th style="padding:5px 8px; border:1px solid #ccc; text-align:right;">Tips</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -272,6 +276,11 @@
                                                 <t t-foreach="elks_ev_atts" t-as="att">
                                                     <t t-set="er" t-value="att._elks_effective_event_rate()"/>
                                                     <t t-set="ev_hours" t-value="ev_hours + (att.worked_hours or 0.0)"/>
+                                                    <!-- Tips on an event shift: the gratuity-pool share plus any
+                                                         Clover/kiosk tip approved for that shift (payable value). -->
+                                                    <t t-set="row_ev_tip"
+                                                       t-value="(att.x_tip_payable or 0.0 if is_tipped else 0.0) + (att.x_gratuity_share or 0.0 if 'x_gratuity_share' in att._fields else 0.0) + (att.x_coordinator_fee_share or 0.0 if 'x_coordinator_fee_share' in att._fields else 0.0)"/>
+                                                    <t t-set="ev_tips_total" t-value="ev_tips_total + row_ev_tip"/>
                                                     <tr>
                                                         <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="wizard._format_date(att.check_in)"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="att.check_in.strftime('%a') if att.check_in else ''"/></td>
@@ -283,6 +292,7 @@
                                                         <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="att.x_event_id.name or ''"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="wizard._format_hours(att.worked_hours or 0.0)"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % er[0]"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % row_ev_tip"/></td>
                                                     </tr>
                                                 </t>
                                             </t>
@@ -290,6 +300,8 @@
                                                 <!-- No clock-in (1099 only): planned certified roster times. -->
                                                 <t t-foreach="ev_lines" t-as="el">
                                                     <t t-set="ev_hours" t-value="ev_hours + (el.hours or 0.0)"/>
+                                                    <t t-set="row_ev_tip" t-value="el.gratuity_share or 0.0"/>
+                                                    <t t-set="ev_tips_total" t-value="ev_tips_total + row_ev_tip"/>
                                                     <tr>
                                                         <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="el.callout_id.event_date and el.callout_id.event_date.strftime('%m/%d/%Y') or ''"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="el.callout_id.event_date.strftime('%a') if el.callout_id.event_date else ''"/></td>
@@ -298,15 +310,17 @@
                                                         <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="el.callout_id.event_name or ''"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="wizard._format_hours(el.hours or 0.0)"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % (el.rate or 0.0)"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % row_ev_tip"/></td>
                                                     </tr>
                                                 </t>
                                             </t>
                                         </tbody>
                                         <tfoot>
                                             <tr style="background:#f0f0f0; font-weight:bold;">
-                                                <td colspan="5" style="padding:6px 8px; border:1px solid #ccc; text-align:right;">Total Event Hours:</td>
+                                                <td colspan="5" style="padding:6px 8px; border:1px solid #ccc; text-align:right;">Total Event Hours / Tips:</td>
                                                 <td style="padding:6px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="wizard._format_hours(ev_hours)"/></td>
                                                 <td style="padding:6px 8px; border:1px solid #ccc;"/>
+                                                <td style="padding:6px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % ev_tips_total"/></td>
                                             </tr>
                                         </tfoot>
                                     </table>
@@ -315,6 +329,20 @@
                                         <t t-else="">Paid at the event (call-out) rate shown in place of the normal wage for these shifts; event hours are excluded from the regular hours above. Payroll calculates the pay.</t>
                                     </p>
                                 </div>
+                            </t>
+
+                            <!-- ===== TOTAL TIPS — PAY PERIOD =====
+                                 One combined figure for every tip on the card: the
+                                 regular-shift tips (Period Total above) plus the event
+                                 gratuity/tips from the Event Pay section. -->
+                            <t t-set="all_tips" t-value="(total_tips or 0.0) + (ev_tips_total or 0.0)"/>
+                            <t t-if="all_tips">
+                                <table style="width:100%; border-collapse:collapse; font-size:12px; margin-top:12px;">
+                                    <tr style="background:#003366; color:#fff; font-weight:bold;">
+                                        <td style="padding:7px 8px; border:1px solid #003366; text-align:right;">Total Tips — Pay Period:</td>
+                                        <td style="padding:7px 8px; border:1px solid #003366; text-align:right; width:16%;"><span t-esc="'$%.2f' % all_tips"/></td>
+                                    </tr>
+                                </table>
                             </t>
 
                             <!--
