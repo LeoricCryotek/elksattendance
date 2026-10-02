@@ -275,14 +275,13 @@ class ElksTimecardReportWizard(models.TransientModel):
             dict: {hr.employee recordset: sorted list of hr.attendance records}
         """
         self.ensure_one()
-        domain = [
-            ('check_in', '>=', datetime.combine(self.date_from, time.min)),
-            ('check_in', '<=', datetime.combine(self.date_to, time.max)),
-            # Payroll only: exclude Volunteers department
-            ('employee_id.department_id.name', '!=', 'Volunteers'),
-            # Exclude hours tagged as charity (those go on the GL report, not payroll)
-            ('x_charity_task_id', '=', False),
-        ]
+        # Reuse the cron's payroll domain so the period's day bounds are the
+        # LODGE-LOCAL days converted to UTC. Naive UTC bounds (the old code here)
+        # cut off a last-day evening shift: e.g. Sep 30 5:27 PM Pacific is stored
+        # as Oct 1 00:27 UTC, which falls past a naive "Sep 30 23:59" upper bound
+        # and so the whole timecard reported zero hours.
+        Cron = self.env['elksattendance.timecard.cron']
+        domain = Cron._payroll_domain(self.date_from, self.date_to)
         if self.employee_ids:
             domain.append(('employee_id', 'in', self.employee_ids.ids))
 
