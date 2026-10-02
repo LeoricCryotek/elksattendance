@@ -223,19 +223,11 @@
                                  here — this report is also emailed to the employee, and
                                  employees don't see the Clover sync figure. The payable
                                  already reflects the approver's per-shift source choice. -->
-                            <!-- Only the supervisor-approved (payable) tip total is
-                                 shown — the per-shift Tips column above already
-                                 reflects the approver's chosen source per day. -->
-                            <t t-if="tc and employee.x_receives_tips">
-                                <div style="margin-top:15px;">
-                                    <table style="width:60%; border-collapse:collapse; font-size:11px;">
-                                        <tr style="font-weight:bold; border-top:1px solid #333;">
-                                            <td style="padding:4px 8px;">Tips (approved by supervisor):</td>
-                                            <td style="padding:4px 8px; text-align:right;">$<span t-esc="'%.2f' % tc.x_tips_payable"/></td>
-                                        </tr>
-                                    </table>
-                                </div>
-                            </t>
+                            <!-- (Tips summary line removed per user request — the
+                                 per-shift Tips column and Period Total above
+                                 already show the approved tips.) -->
+                            <t t-set="tc"
+                               t-value="wizard.env['elks.timecard'].sudo().search([('employee_id', '=', employee.id), ('period_start', '=', wizard.date_from), ('period_end', '=', wizard.date_to)], limit=1)"/>
 
                             <!-- ===== EVENT PAY (call-out rate) — second area =====
                                  When a department manager puts someone on a certified

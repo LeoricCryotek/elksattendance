@@ -64,19 +64,20 @@ class ElksTimecardReportWizard(models.TransientModel):
     # Pay period selection
     # ------------------------------------------------------------------
     pay_period = fields.Selection([
-        ('first_half', '1st – 15th'),
-        ('second_half', '16th – End of Month'),
+        ('first_half', 'First half'),
+        ('second_half', 'Second half'),
         ('custom', 'Custom Range'),
     ], string="Pay Period", default=lambda self: self._default_pay_period(),
-        help="Semi-monthly pay period, or Custom for any date range.",
+        help="Semi-monthly pay period, or Custom for any date range. "
+             "The exact dates follow the lodge's configured split.",
     )
     period_month = fields.Selection(
         MONTH_CHOICES, string="Month",
-        default=lambda self: str(fields.Date.context_today(self).month),
+        default=lambda self: str(self._elks_prev_period()[0].month),
     )
     period_year = fields.Char(
         "Year",
-        default=lambda self: str(fields.Date.context_today(self).year),
+        default=lambda self: str(self._elks_prev_period()[0].year),
     )
     period_display = fields.Char(
         "Period", compute='_compute_period_display',
@@ -105,25 +106,34 @@ class ElksTimecardReportWizard(models.TransientModel):
     # === AI AGENT ===
     # day <= 15 -> first half, else second half. Used as field defaults.
     # ------------------------------------------------------------------
+    # === HUMAN ===
+    # The payroll report opens on the PREVIOUS (just-completed) pay period — that's
+    # the one you run payroll for — not the in-progress one.
+    # === AI AGENT ===
+    # Previous period = the period before the one containing today, from the SAME
+    # cut-over-aware math the timecards use (elksattendance.timecard.cron). This
+    # keeps the report's dates aligned with how shifts are actually bucketed.
+    @api.model
+    def _elks_prev_period(self):
+        Cron = self.env['elksattendance.timecard.cron']
+        freq = self.env['elks.timecard']._frequency()
+        today = Cron._lodge_today()
+        cur_start, _cur_end = Cron._get_current_period(today, freq)
+        return Cron._get_current_period(cur_start - timedelta(days=1), freq)
+
     @api.model
     def _default_pay_period(self):
-        today = fields.Date.context_today(self)
-        return 'first_half' if today.day <= 15 else 'second_half'
+        start, _end = self._elks_prev_period()
+        # The first period of a month always starts on the 1st.
+        return 'first_half' if start.day == 1 else 'second_half'
 
     @api.model
     def _default_date_from(self):
-        today = fields.Date.context_today(self)
-        if today.day <= 15:
-            return today.replace(day=1)
-        return today.replace(day=16)
+        return self._elks_prev_period()[0]
 
     @api.model
     def _default_date_to(self):
-        today = fields.Date.context_today(self)
-        if today.day <= 15:
-            return today.replace(day=15)
-        last_day = calendar.monthrange(today.year, today.month)[1]
-        return today.replace(day=last_day)
+        return self._elks_prev_period()[1]
 
     # ------------------------------------------------------------------
     # Computed
@@ -134,20 +144,13 @@ class ElksTimecardReportWizard(models.TransientModel):
     # ------------------------------------------------------------------
     @api.depends('pay_period', 'period_month', 'period_year', 'date_from', 'date_to')
     def _compute_period_display(self):
-        month_map = dict(MONTH_CHOICES)
+        # Always show the ACTUAL date range — unambiguous whatever the split is.
         for rec in self:
-            if rec.pay_period == 'custom':
-                if rec.date_from and rec.date_to:
-                    rec.period_display = (
-                        f"{rec.date_from.strftime('%m/%d/%Y')} – "
-                        f"{rec.date_to.strftime('%m/%d/%Y')}"
-                    )
-                else:
-                    rec.period_display = "Custom"
-            elif rec.period_month and rec.period_year:
-                mname = month_map.get(rec.period_month, '?')
-                half = "1st – 15th" if rec.pay_period == 'first_half' else "16th – End"
-                rec.period_display = f"{mname} {rec.period_year} ({half})"
+            if rec.date_from and rec.date_to:
+                rec.period_display = (
+                    f"{rec.date_from.strftime('%m/%d/%Y')} – "
+                    f"{rec.date_to.strftime('%m/%d/%Y')}"
+                )
             else:
                 rec.period_display = ""
 
@@ -165,15 +168,17 @@ class ElksTimecardReportWizard(models.TransientModel):
             return
         if not self.period_month or not self.period_year:
             return
+        # Use the SAME cut-over-aware period math the timecards use, so the
+        # report range matches how shifts are bucketed (1st-14th / 15th-EOM,
+        # with the legacy split before the cut-over date).
         month = int(self.period_month)
         year = int(self.period_year)
-        if self.pay_period == 'first_half':
-            self.date_from = date(year, month, 1)
-            self.date_to = date(year, month, 15)
-        elif self.pay_period == 'second_half':
-            last_day = calendar.monthrange(year, month)[1]
-            self.date_from = date(year, month, 16)
-            self.date_to = date(year, month, last_day)
+        Cron = self.env['elksattendance.timecard.cron']
+        freq = self.env['elks.timecard']._frequency()
+        last_day = calendar.monthrange(year, month)[1]
+        ref = date(year, month, 1) if self.pay_period == 'first_half' \
+            else date(year, month, last_day)
+        self.date_from, self.date_to = Cron._get_current_period(ref, freq)
 
     # ------------------------------------------------------------------
     # Period navigation buttons
