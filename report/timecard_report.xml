@@ -255,8 +255,10 @@
                                         <thead>
                                             <tr style="background:#f0f0f0;">
                                                 <th style="padding:5px 8px; border:1px solid #ccc; text-align:left;">Date</th>
+                                                <th style="padding:5px 8px; border:1px solid #ccc; text-align:left;">Day</th>
+                                                <th style="padding:5px 8px; border:1px solid #ccc; text-align:center;">Check In</th>
+                                                <th style="padding:5px 8px; border:1px solid #ccc; text-align:center;">Check Out</th>
                                                 <th style="padding:5px 8px; border:1px solid #ccc; text-align:left;">Event</th>
-                                                <th style="padding:5px 8px; border:1px solid #ccc; text-align:left;">Role</th>
                                                 <th style="padding:5px 8px; border:1px solid #ccc; text-align:right;">Hours</th>
                                                 <th style="padding:5px 8px; border:1px solid #ccc; text-align:right;">Event Rate/hr</th>
                                                 <th style="padding:5px 8px; border:1px solid #ccc; text-align:right;">Event Pay</th>
@@ -267,7 +269,8 @@
                                         <tbody>
                                             <t t-set="ev_total" t-value="0.0"/>
                                             <t t-if="elks_ev_atts">
-                                                <!-- Clocked event shifts at the matched call-out rate. -->
+                                                <!-- Clocked event shifts: same Date/Day/Check In/Check Out
+                                                     as the regular rows, priced at the event rate. -->
                                                 <t t-foreach="elks_ev_atts" t-as="att">
                                                     <t t-set="er" t-value="att._elks_effective_event_rate()"/>
                                                     <t t-set="labor" t-value="er[1]"/>
@@ -275,9 +278,14 @@
                                                     <t t-set="line_total" t-value="labor + etips"/>
                                                     <t t-set="ev_total" t-value="ev_total + line_total"/>
                                                     <tr>
-                                                        <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="att.check_in and att.check_in.strftime('%m/%d/%Y') or ''"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="wizard._format_date(att.check_in)"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="att.check_in.strftime('%a') if att.check_in else ''"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:center;"><span t-esc="wizard._format_time(att.check_in)"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:center;">
+                                                            <t t-if="att.check_out"><span t-esc="wizard._format_time(att.check_out)"/></t>
+                                                            <t t-else=""><span style="color:red; font-style:italic;">OPEN</span></t>
+                                                        </td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="att.x_event_id.name or ''"/></td>
-                                                        <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="(dict(att._fields['x_event_role'].selection).get(att.x_event_role, att.x_event_role) or '') if 'x_event_role' in att._fields else ''"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="wizard._format_hours(att.worked_hours or 0.0)"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % er[0]"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % labor"/></td>
@@ -287,7 +295,7 @@
                                                 </t>
                                             </t>
                                             <t t-else="">
-                                                <!-- No clock-in (1099 only): fall back to the planned certified roster. -->
+                                                <!-- No clock-in (1099 only): planned certified roster times. -->
                                                 <t t-foreach="ev_lines" t-as="el">
                                                     <t t-set="labor" t-value="el.raw_cost or 0.0"/>
                                                     <t t-set="etips" t-value="el.gratuity_share or 0.0"/>
@@ -295,8 +303,10 @@
                                                     <t t-set="ev_total" t-value="ev_total + line_total"/>
                                                     <tr>
                                                         <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="el.callout_id.event_date and el.callout_id.event_date.strftime('%m/%d/%Y') or ''"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="el.callout_id.event_date.strftime('%a') if el.callout_id.event_date else ''"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:center;"><span t-esc="el.start_str or '—'"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:center;"><span t-esc="el.end_str or '—'"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="el.callout_id.event_name or ''"/></td>
-                                                        <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="el.role or ''"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="wizard._format_hours(el.hours or 0.0)"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % (el.rate or 0.0)"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % labor"/></td>
@@ -308,7 +318,7 @@
                                         </tbody>
                                         <tfoot>
                                             <tr style="background:#f0f0f0; font-weight:bold;">
-                                                <td colspan="7" style="padding:6px 8px; border:1px solid #ccc; text-align:right;">
+                                                <td colspan="9" style="padding:6px 8px; border:1px solid #ccc; text-align:right;">
                                                     <t t-if="is_1099">1099 Disbursement Total:</t><t t-else="">Event Pay Total:</t>
                                                 </td>
                                                 <td style="padding:6px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % ev_total"/></td>
