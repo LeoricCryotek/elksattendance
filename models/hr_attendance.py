@@ -158,12 +158,7 @@ class HrAttendance(models.Model):
         if 'x_event_id' not in self._fields \
                 or 'elks.event.callout.line' not in self.env:
             return 0.0, 0.0
-        if not (self.x_event_id and self.employee_id):
-            return 0.0, 0.0
-        # Only time worked DURING the event's actual window is paid at the event
-        # rate. Setup, cleanup and any other punches linked to the event but
-        # falling outside its start→end window stay on the normal wage.
-        if not self._elks_punch_in_event_window():
+        if not (self.x_event_id and self.employee_id and self.check_in):
             return 0.0, 0.0
         Line = self.env['elks.event.callout.line'].sudo()
         domain = [
@@ -181,31 +176,42 @@ class HrAttendance(models.Model):
                 domain + [('callout_id.department', '=', dept)], limit=1)
         if not line:
             line = Line.search(domain, limit=1)
+        if not line:
+            return 0.0, 0.0
+        # Only hours worked on the EVENT DATE, inside THIS person's rostered
+        # start→end window (from the staff roster line), are paid at the event
+        # rate. Setup/cleanup, or a punch on a different day, stay on the wage.
+        if not self._elks_punch_in_roster_window(line):
+            return 0.0, 0.0
         rate = line.rate or 0.0
         return rate, (self.worked_hours or 0.0) * rate
 
     # === HUMAN ===
-    # Did this shift actually overlap the event's own hours? The event stores a
-    # date plus a start and end time; a punch counts as event time only if it
-    # overlaps that window. Setup beforehand, cleanup afterward, or a punch on a
-    # different day are NOT event time (they're paid the normal wage).
+    # Did this shift actually fall on the event day, within the start/end time
+    # this person was rostered for? Only then is it event-rate time. Clocking in
+    # before setup, staying for cleanup, or working a different day are NOT event
+    # time — they're paid the normal wage.
     # === AI AGENT ===
-    # elksevent project.task carries x_event_date + x_event_start_time /
-    # x_event_end_time (24h decimal floats). Build the window in the LODGE tz,
-    # convert to naive-UTC, and test overlap against [check_in, check_out]. If
-    # the event has no usable window (no date, or end <= start) return True so we
-    # fall back to prior behavior rather than silently dropping pay. Read-only.
-    def _elks_punch_in_event_window(self):
+    # Window = the matched callout LINE's event_date (related to the event's
+    # x_event_date) + its start_time/end_time (24h decimal floats, the per-person
+    # Start/End on the staff roster). Built in the LODGE tz, converted to naive-
+    # UTC, overlap-tested against [check_in, check_out]. If the line has no usable
+    # time window we fall back to a same-event-date test so a wrong-day punch is
+    # still excluded. Read-only; never writes.
+    def _elks_punch_in_roster_window(self, line):
         self.ensure_one()
-        evt = self.x_event_id
-        if not evt or not self.check_in:
+        if not line or not self.check_in:
             return False
-        date = getattr(evt, 'x_event_date', False)
-        start_h = getattr(evt, 'x_event_start_time', 0.0) or 0.0
-        end_h = getattr(evt, 'x_event_end_time', 0.0) or 0.0
-        if not date or end_h <= start_h:
-            return True
-        tz = self.env['elksattendance.timecard.cron']._lodge_tz()
+        Cron = self.env['elksattendance.timecard.cron']
+        date = line.callout_id.event_date
+        if not date:
+            return False
+        start_h = line.start_time or 0.0
+        end_h = line.end_time or 0.0
+        if end_h <= start_h:
+            # No usable per-person window: fall back to "same event date".
+            return Cron._lodge_date(self.check_in) == date
+        tz = Cron._lodge_tz()
 
         def _to_utc(hours):
             h = int(hours)
