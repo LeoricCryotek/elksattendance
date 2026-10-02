@@ -261,22 +261,17 @@
                                                 <th style="padding:5px 8px; border:1px solid #ccc; text-align:left;">Event</th>
                                                 <th style="padding:5px 8px; border:1px solid #ccc; text-align:right;">Hours</th>
                                                 <th style="padding:5px 8px; border:1px solid #ccc; text-align:right;">Event Rate/hr</th>
-                                                <th style="padding:5px 8px; border:1px solid #ccc; text-align:right;">Event Pay</th>
-                                                <th style="padding:5px 8px; border:1px solid #ccc; text-align:right;">Tips</th>
-                                                <th style="padding:5px 8px; border:1px solid #ccc; text-align:right;">Total</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            <t t-set="ev_total" t-value="0.0"/>
+                                            <t t-set="ev_hours" t-value="0.0"/>
                                             <t t-if="elks_ev_atts">
                                                 <!-- Clocked event shifts: same Date/Day/Check In/Check Out
-                                                     as the regular rows, priced at the event rate. -->
+                                                     as the regular rows, showing the event rate. Payroll
+                                                     computes the actual pay from hours x rate. -->
                                                 <t t-foreach="elks_ev_atts" t-as="att">
                                                     <t t-set="er" t-value="att._elks_effective_event_rate()"/>
-                                                    <t t-set="labor" t-value="er[1]"/>
-                                                    <t t-set="etips" t-value="(att.x_gratuity_share or 0.0) if 'x_gratuity_share' in att._fields else 0.0"/>
-                                                    <t t-set="line_total" t-value="labor + etips"/>
-                                                    <t t-set="ev_total" t-value="ev_total + line_total"/>
+                                                    <t t-set="ev_hours" t-value="ev_hours + (att.worked_hours or 0.0)"/>
                                                     <tr>
                                                         <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="wizard._format_date(att.check_in)"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="att.check_in.strftime('%a') if att.check_in else ''"/></td>
@@ -288,19 +283,13 @@
                                                         <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="att.x_event_id.name or ''"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="wizard._format_hours(att.worked_hours or 0.0)"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % er[0]"/></td>
-                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % labor"/></td>
-                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % etips"/></td>
-                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right; font-weight:bold;"><span t-esc="'$%.2f' % line_total"/></td>
                                                     </tr>
                                                 </t>
                                             </t>
                                             <t t-else="">
                                                 <!-- No clock-in (1099 only): planned certified roster times. -->
                                                 <t t-foreach="ev_lines" t-as="el">
-                                                    <t t-set="labor" t-value="el.raw_cost or 0.0"/>
-                                                    <t t-set="etips" t-value="el.gratuity_share or 0.0"/>
-                                                    <t t-set="line_total" t-value="labor + etips"/>
-                                                    <t t-set="ev_total" t-value="ev_total + line_total"/>
+                                                    <t t-set="ev_hours" t-value="ev_hours + (el.hours or 0.0)"/>
                                                     <tr>
                                                         <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="el.callout_id.event_date and el.callout_id.event_date.strftime('%m/%d/%Y') or ''"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="el.callout_id.event_date.strftime('%a') if el.callout_id.event_date else ''"/></td>
@@ -309,25 +298,21 @@
                                                         <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="el.callout_id.event_name or ''"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="wizard._format_hours(el.hours or 0.0)"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % (el.rate or 0.0)"/></td>
-                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % labor"/></td>
-                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % etips"/></td>
-                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right; font-weight:bold;"><span t-esc="'$%.2f' % line_total"/></td>
                                                     </tr>
                                                 </t>
                                             </t>
                                         </tbody>
                                         <tfoot>
                                             <tr style="background:#f0f0f0; font-weight:bold;">
-                                                <td colspan="9" style="padding:6px 8px; border:1px solid #ccc; text-align:right;">
-                                                    <t t-if="is_1099">1099 Disbursement Total:</t><t t-else="">Event Pay Total:</t>
-                                                </td>
-                                                <td style="padding:6px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % ev_total"/></td>
+                                                <td colspan="5" style="padding:6px 8px; border:1px solid #ccc; text-align:right;">Total Event Hours:</td>
+                                                <td style="padding:6px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="wizard._format_hours(ev_hours)"/></td>
+                                                <td style="padding:6px 8px; border:1px solid #ccc;"/>
                                             </tr>
                                         </tfoot>
                                     </table>
                                     <p style="font-size:10px; color:#666; margin-top:3px;">
-                                        <t t-if="is_1099">1099 non-employee compensation — event labor at the call-out rate plus gratuity share, paid without tax withholding.</t>
-                                        <t t-else="">Paid at the event (call-out) rate in place of the normal wage for these shifts; event hours are excluded from the regular hours above.</t>
+                                        <t t-if="is_1099">1099 non-employee compensation — event hours at the call-out rate shown, paid without tax withholding.</t>
+                                        <t t-else="">Paid at the event (call-out) rate shown in place of the normal wage for these shifts; event hours are excluded from the regular hours above. Payroll calculates the pay.</t>
                                     </p>
                                 </div>
                             </t>

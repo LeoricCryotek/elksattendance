@@ -40,6 +40,9 @@ and reported on (e.g. in the payroll timecard report).
 It is only editable when the employee is flagged as tipped.
 """
 import logging
+from datetime import datetime, time
+
+import pytz
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
@@ -157,6 +160,11 @@ class HrAttendance(models.Model):
             return 0.0, 0.0
         if not (self.x_event_id and self.employee_id):
             return 0.0, 0.0
+        # Only time worked DURING the event's actual window is paid at the event
+        # rate. Setup, cleanup and any other punches linked to the event but
+        # falling outside its start→end window stay on the normal wage.
+        if not self._elks_punch_in_event_window():
+            return 0.0, 0.0
         Line = self.env['elks.event.callout.line'].sudo()
         domain = [
             ('callout_id.event_id', '=', self.x_event_id.id),
@@ -175,6 +183,43 @@ class HrAttendance(models.Model):
             line = Line.search(domain, limit=1)
         rate = line.rate or 0.0
         return rate, (self.worked_hours or 0.0) * rate
+
+    # === HUMAN ===
+    # Did this shift actually overlap the event's own hours? The event stores a
+    # date plus a start and end time; a punch counts as event time only if it
+    # overlaps that window. Setup beforehand, cleanup afterward, or a punch on a
+    # different day are NOT event time (they're paid the normal wage).
+    # === AI AGENT ===
+    # elksevent project.task carries x_event_date + x_event_start_time /
+    # x_event_end_time (24h decimal floats). Build the window in the LODGE tz,
+    # convert to naive-UTC, and test overlap against [check_in, check_out]. If
+    # the event has no usable window (no date, or end <= start) return True so we
+    # fall back to prior behavior rather than silently dropping pay. Read-only.
+    def _elks_punch_in_event_window(self):
+        self.ensure_one()
+        evt = self.x_event_id
+        if not evt or not self.check_in:
+            return False
+        date = getattr(evt, 'x_event_date', False)
+        start_h = getattr(evt, 'x_event_start_time', 0.0) or 0.0
+        end_h = getattr(evt, 'x_event_end_time', 0.0) or 0.0
+        if not date or end_h <= start_h:
+            return True
+        tz = self.env['elksattendance.timecard.cron']._lodge_tz()
+
+        def _to_utc(hours):
+            h = int(hours)
+            m = int(round((hours - h) * 60))
+            if h >= 24:  # guard a 24.0 end-of-day value
+                h, m = 23, 59
+            local = tz.localize(datetime.combine(date, time(hour=h, minute=m)))
+            return local.astimezone(pytz.utc).replace(tzinfo=None)
+
+        win_start = _to_utc(start_h)
+        win_end = _to_utc(end_h)
+        punch_end = self.check_out or fields.Datetime.now()
+        # Overlap test: punch starts before the window ends AND ends after it starts.
+        return self.check_in < win_end and punch_end > win_start
 
     # === HUMAN ===
     # Whether a shift counts as PAID (payroll) hours or VOLUNTEER / CHARITY
