@@ -63,6 +63,12 @@
                             icon="fa-download"/>
                     <button name="action_export_csv" string="Export CSV"
                             type="object" class="btn-secondary"/>
+                    <button name="action_export_gusto_hours" string="Gusto Hours"
+                            type="object" class="btn-secondary"
+                            title="Smart Import CSV for W-2 payroll (regular hours + paycheck tips + event pay)"/>
+                    <button name="action_export_gusto_contractors" string="Gusto 1099"
+                            type="object" class="btn-secondary"
+                            title="Contractor-payment CSV for event 1099 workers"/>
                     <button string="Close" class="btn-secondary" special="cancel"/>
                 </footer>
             </form>

@@ -500,11 +500,32 @@ class ElksTimecardReportWizard(models.TransientModel):
         output.close()
 
         filename = f"Timecards_{self.date_from}_{self.date_to}.csv"
+        return self._elks_stash_csv(csv_content, filename)
+
+    # ------------------------------------------------------------------
+    # Gusto exports
+    # === HUMAN ===
+    # Two downloads built for Gusto payroll so admins stop copy-pasting:
+    #   * "Gusto Hours" — a Smart Import file for W-2 staff (regular hours +
+    #     paycheck tips + any event-rate pay). Upload it in Gusto's Run Payroll
+    #     via "Import payroll data"; Gusto auto-matches the columns.
+    #   * "Gusto 1099" — a contractor-payment file for event 1099 workers.
+    #     Upload it under Pay Contractors → Upload CSV.
+    # === AI AGENT ===
+    # No Gusto API/partner approval needed for these — they feed Gusto's
+    # spreadsheet Smart Import. Tips are PAYCHECK tips (lodge pays them on the
+    # check). No overtime split (lodge never hits 40/wk). Event-rate shifts are
+    # detected via hr.attendance._elks_effective_event_rate(): W-2 event pay goes
+    # in an "Event pay" earnings column (map once to a Gusto earning type); 1099
+    # event pay goes on the contractor file instead. Both reuse _elks_stash_csv.
+    # ------------------------------------------------------------------
+    def _elks_stash_csv(self, csv_content, filename):
+        """Write CSV text to the download field and re-open the wizard."""
+        self.ensure_one()
         self.write({
             'csv_file': base64.b64encode(csv_content.encode('utf-8')),
             'csv_filename': filename,
         })
-
         return {
             'type': 'ir.actions.act_window',
             'name': _('Download Timecard CSV'),
@@ -513,3 +534,139 @@ class ElksTimecardReportWizard(models.TransientModel):
             'view_mode': 'form',
             'target': 'new',
         }
+
+    def _elks_is_1099(self, employee):
+        """True when the employee is paid as a 1099 contractor."""
+        return ('x_pay_category' in employee._fields
+                and employee.x_pay_category == '1099')
+
+    @staticmethod
+    def _elks_split_name(employee):
+        """('First', 'rest') — Gusto Smart Import matches on first/last name."""
+        name = (employee.name or '').strip()
+        if ' ' in name:
+            return tuple(name.split(' ', 1))
+        return name, ''
+
+    def _elks_paycheck_tips(self, att, is_tipped):
+        """Paycheck tips for one shift: approved payable tip + event gratuity +
+        coordinator fee (matches the 'Total Tips' on the PDF)."""
+        tip = (att.x_tip_payable or 0.0) if is_tipped else 0.0
+        if 'x_gratuity_share' in att._fields:
+            tip += att.x_gratuity_share or 0.0
+        if 'x_coordinator_fee_share' in att._fields:
+            tip += att.x_coordinator_fee_share or 0.0
+        return tip
+
+    def action_export_gusto_hours(self):
+        """Gusto Smart Import CSV: W-2 regular hours + paycheck tips + event pay."""
+        self.ensure_one()
+        grouped = self._get_attendance_data()
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(['First name', 'Last name', 'Regular hours',
+                         'Paycheck tips', 'Event pay'])
+
+        for employee in sorted(grouped.keys(), key=lambda e: e.name or ''):
+            # 1099 contractors are paid on the contractor file, not here.
+            if self._elks_is_1099(employee):
+                continue
+            is_tipped = employee.x_receives_tips
+            reg_hours = 0.0
+            event_pay = 0.0
+            tips = 0.0
+            for att in grouped[employee]:
+                rate, pay = att._elks_effective_event_rate()
+                if rate > 0:
+                    event_pay += pay
+                else:
+                    reg_hours += att.worked_hours or 0.0
+                tips += self._elks_paycheck_tips(att, is_tipped)
+            first, last = self._elks_split_name(employee)
+            writer.writerow([
+                first, last,
+                round(reg_hours, 2),
+                round(tips, 2) or '',
+                round(event_pay, 2) or '',
+            ])
+
+        csv_content = output.getvalue()
+        output.close()
+        filename = f"Gusto_Hours_{self.date_from}_{self.date_to}.csv"
+        return self._elks_stash_csv(csv_content, filename)
+
+    def _elks_gusto_1099_rows(self):
+        """{hr.employee: {'labor','grat','hours'}} of event pay for 1099s.
+
+        Prefers actual clocked event shifts; falls back to the planned certified
+        roster for a 1099 who was rostered but never clocked in.
+        """
+        Cron = self.env['elksattendance.timecard.cron']
+        domain = Cron._payroll_domain(self.date_from, self.date_to)
+        if self.employee_ids:
+            domain.append(('employee_id', 'in', self.employee_ids.ids))
+        atts = self.env['hr.attendance'].search(domain)
+
+        rows = defaultdict(lambda: {'labor': 0.0, 'grat': 0.0, 'hours': 0.0})
+        clocked = set()
+        for att in atts:
+            emp = att.employee_id
+            if not self._elks_is_1099(emp):
+                continue
+            rate, pay = att._elks_effective_event_rate()
+            if rate <= 0:
+                continue
+            d = rows[emp]
+            d['labor'] += pay
+            d['hours'] += att.worked_hours or 0.0
+            if 'x_gratuity_share' in att._fields:
+                d['grat'] += att.x_gratuity_share or 0.0
+            clocked.add(emp)
+
+        # Rostered-but-never-clocked 1099s: use the planned roster lines.
+        for emp, lines in self._get_event_1099_data().items():
+            if emp in clocked or not self._elks_is_1099(emp):
+                continue
+            d = rows[emp]
+            d['labor'] += sum(lines.mapped('raw_cost'))
+            d['grat'] += sum(lines.mapped('gratuity_share'))
+            d['hours'] += sum(lines.mapped('hours'))
+        return rows
+
+    def action_export_gusto_contractors(self):
+        """Gusto contractor-payment CSV for event 1099 workers."""
+        self.ensure_one()
+        rows = self._elks_gusto_1099_rows()
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(['contractor_type', 'first_name', 'last_name',
+                         'invoice_number', 'wage', 'bonus', 'hours_worked',
+                         'memo'])
+        period_tag = f"{self.date_from:%Y%m%d}-{self.date_to:%Y%m%d}"
+        wrote = False
+        for employee in sorted(rows.keys(), key=lambda e: e.name or ''):
+            d = rows[employee]
+            if not (d['labor'] or d['grat']):
+                continue
+            first, last = self._elks_split_name(employee)
+            writer.writerow([
+                'Individual', first, last,
+                f"ELKS-{period_tag}-{employee.id}",
+                round(d['labor'], 2) or '',
+                round(d['grat'], 2) or '',
+                round(d['hours'], 2) or '',
+                f"Event pay {self.period_display}",
+            ])
+            wrote = True
+
+        if not wrote:
+            raise UserError(_(
+                "No 1099 event pay found for the period %(period)s.",
+                period=self.period_display))
+
+        csv_content = output.getvalue()
+        output.close()
+        filename = f"Gusto_1099_{self.date_from}_{self.date_to}.csv"
+        return self._elks_stash_csv(csv_content, filename)
