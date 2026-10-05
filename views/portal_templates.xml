@@ -234,14 +234,18 @@
              Shown only to the approver/officer managing SOMEONE ELSE's card. The
              employee (owner) never sees this table or the Clover figures; they
              just see their final "Tips" (the payable) in the shift table above. -->
+        <!-- Managers (Attendance approver or officer) manage tips on ANY card,
+             INCLUDING their own — the bar manager adjusts their own tips here.
+             Regular employees are never approver/officer, so they still only see
+             their final payable tip (and never the Clover sync figure). -->
         <t t-set="can_manage_tips"
-           t-value="(is_approver or tc._is_officer(user)) and not is_owner"/>
+           t-value="is_approver or tc._is_officer(user)"/>
         <t t-if="can_manage_tips and (tc.employee_id.x_receives_tips or tc.x_clover_tips_total)">
             <div class="card mb-2">
                 <div class="card-body py-2">
                     <h6 class="card-title mb-1">Gratuity / Tips</h6>
                     <t t-set="can_see_clover" t-value="True"/>
-                    <t t-set="tip_editable" t-value="is_approver and tc.state != 'approved'"/>
+                    <t t-set="tip_editable" t-value="(is_approver or tc._is_officer(user)) and tc.state != 'approved'"/>
 
                     <!-- Approver: per-shift Kiosk / Clover / manual Override -->
                     <form t-if="tip_editable"
@@ -667,7 +671,7 @@
             <!-- Approver / officer: pick this shift's tip source (Kiosk / Clover /
                  manual Override) right here on the line. Posts one line back to
                  the shared tip-sources route and returns to this page. -->
-            <t t-if="(is_approver or is_officer) and not is_owner and timecard.employee_id.x_receives_tips">
+            <t t-if="(is_approver or is_officer) and timecard.employee_id.x_receives_tips">
                 <h5 class="mt-4">Tip Source (Supervisor)</h5>
                 <p class="text-muted mb-2">
                     Choose which tip counts for this shift — <strong>Kiosk</strong>,
