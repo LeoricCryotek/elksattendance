@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 # ============================================================================
 # === HUMAN ===
-# Removes stale legacy-boundary duplicate timecards (see the model method's
-# docstring). This earlier version called the frequency helper on the wrong
-# model and errored; it now delegates to elks.timecard.
+# Re-runs the duplicate-timecard cleanup. The 19.0.5.35 attempt errored (it
+# called the pay-frequency helper on the wrong model), so the duplicates were
+# never removed. This runs the corrected, idempotent cleanup.
 # === AI AGENT ===
 # Odoo migration: def migrate(cr, version). Delegates to the idempotent model
-# method so the logic lives in one place.
+# method elks.timecard._elks_prune_wrong_boundary_cards().
 # ============================================================================
-"""19.0.5.35 — remove stale legacy-boundary duplicate timecards."""
+"""19.0.5.36 — re-run duplicate-timecard cleanup (fixes the broken 5.35 run)."""
 from odoo import api, SUPERUSER_ID
 
 

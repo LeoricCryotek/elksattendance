@@ -307,6 +307,46 @@ class ElksTimecard(models.Model):
             })
         return tc
 
+    # === HUMAN ===
+    # Clean up leftover duplicate timecards. When the pay-period boundary changed
+    # (1st-15th -> 1st-14th), cards already made under the OLD split stuck around
+    # next to the new ones, so some people showed two cards for the same stretch.
+    # This removes the wrong-boundary ones — but only cards that are NOT yet
+    # approved AND whose period ends today or later, so previously approved/paid
+    # (and already-ended) periods are never touched.
+    # === AI AGENT ===
+    # A card is "wrong-boundary" when (period_start, period_end) != the period the
+    # current logic computes for that start date. Safe to run repeatedly
+    # (idempotent) and called from migrations. Attendances are untouched; the
+    # correct card is (re)created on demand by _get_or_create.
+    @api.model
+    def _elks_prune_wrong_boundary_cards(self):
+        Cron = self.env['elksattendance.timecard.cron']
+        try:
+            freq = self._frequency()
+        except Exception:  # noqa: BLE001 — never let cleanup abort an upgrade
+            freq = 'semi_monthly'
+        today = Cron._lodge_today()
+        candidates = self.sudo().search([
+            ('period_end', '>=', today),
+            ('state', '!=', 'approved'),
+        ])
+        to_remove = self.browse()
+        for tc in candidates:
+            if not (tc.period_start and tc.period_end):
+                continue
+            start, end = Cron._get_current_period(tc.period_start, freq)
+            if (tc.period_start, tc.period_end) != (start, end):
+                to_remove |= tc
+        if to_remove:
+            _logger.info(
+                "elks.timecard: pruning %d wrong-boundary duplicate card(s): %s",
+                len(to_remove),
+                [(t.employee_id.name, str(t.period_start), str(t.period_end))
+                 for t in to_remove])
+            to_remove.sudo().unlink()
+        return to_remove
+
     @api.model
     def _elks_employees_for_user(self, user):
         """Employees linked to a (portal) user, by related user or contact."""
