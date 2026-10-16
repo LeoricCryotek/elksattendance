@@ -640,8 +640,12 @@ class ElksTimecardReportWizard(models.TransientModel):
                    (r.get('first_name') or '').strip().lower())
             by_emp[key].append(r)
 
-        extra_rows = []
+        # We ONLY fill rows that already exist in the template — never add a new
+        # row. Gusto matches each employee to one row per existing job, so an
+        # invented "Event Bartender" row for someone who has no such job in Gusto
+        # collides with their Primary row ("can only be selected for one row").
         matched = set()
+        no_event_job = []  # (last, first, event_hours) — event work, no event job
         for key, data in hours.items():
             emp_rows = by_emp.get(key)
             if not emp_rows:
@@ -657,22 +661,13 @@ class ElksTimecardReportWizard(models.TransientModel):
             if data['event']:
                 event_row = next(
                     (r for r in emp_rows
-                     if 'event' in (r.get('title') or '').lower()), None)
+                     if r is not primary
+                     and 'event' in (r.get('title') or '').lower()), None)
                 if event_row:
                     event_row['regular_hours'] = self._elks_fmt_hours(
                         data['event'])
                 else:
-                    nr = {fn: '' for fn in fieldnames}
-                    nr['last_name'] = primary.get('last_name')
-                    nr['first_name'] = primary.get('first_name')
-                    nr['title'] = 'Event Bartender'
-                    if 'gusto_employee_id' in fieldnames:
-                        nr['gusto_employee_id'] = primary.get(
-                            'gusto_employee_id')
-                    nr['regular_hours'] = self._elks_fmt_hours(data['event'])
-                    if 'personal_note' in fieldnames:
-                        nr['personal_note'] = 'Event hours — verify Gusto job'
-                    extra_rows.append(nr)
+                    no_event_job.append((key[0], key[1], data['event']))
 
         output = io.StringIO()
         writer = csv.DictWriter(output, fieldnames=fieldnames,
@@ -680,20 +675,30 @@ class ElksTimecardReportWizard(models.TransientModel):
         writer.writeheader()
         for r in rows:
             writer.writerow(r)
-        for r in extra_rows:
-            writer.writerow(r)
         csv_content = output.getvalue()
         output.close()
 
-        # Flag anyone with Odoo hours we couldn't match to a template row.
+        # Build a combined warning for anything the user must handle by hand.
+        msgs = []
         unmatched = [k for k in hours if k not in matched]
-        warning = False
         if unmatched:
             names = ", ".join(sorted("%s, %s" % (ln.title(), fn.title())
                                      for ln, fn in unmatched))
-            warning = _(
+            msgs.append(_(
                 "These employees have hours in Odoo but no matching row in the "
-                "Gusto template (check the name spelling in Gusto): %s") % names
+                "Gusto template (check the name spelling in Gusto): %s") % names)
+        if no_event_job:
+            ev = ", ".join(sorted(
+                "%s, %s (%s hrs)" % (ln.title(), fn.title(),
+                                     self._elks_fmt_hours(h))
+                for ln, fn, h in no_event_job))
+            msgs.append(_(
+                "These employees worked EVENT hours but have no event job row in "
+                "the Gusto template, so those hours were NOT added (they'd clash "
+                "with the person's primary job). Add an event job for them in "
+                "Gusto and re-download the template, or enter those hours "
+                "manually: %s") % ev)
+        warning = "\n\n".join(msgs) if msgs else False
 
         filename = f"Gusto_Timesheet_{self.date_from}_{self.date_to}.csv"
         self.write({
