@@ -384,10 +384,24 @@ class ElksTimecardReportWizard(models.TransientModel):
             s.lower() for s in self._elks_split_name(e)[::-1]))
 
     @staticmethod
-    def _elks_display_name(employee):
-        """'Last, First' — matches how Gusto lists employees, so the printed
-        timecards line up with the Gusto payroll screen."""
+    def _elks_base_name(employee):
+        """The person's plain 'First Last', with any ' - Role' qualifier removed.
+
+        The lodge gives one person several employee records, named
+        'First Last - Role' (e.g. 'Maggie Hazelbaker - Lounge'). Gusto has ONE
+        record per person ('Maggie Hazelbaker'), so we drop the role suffix
+        before matching or displaying the name.
+        """
         name = (employee.name or '').strip()
+        if ' - ' in name:
+            name = name.split(' - ', 1)[0].strip()
+        return name
+
+    @classmethod
+    def _elks_display_name(cls, employee):
+        """'Last, First' (role suffix stripped) — matches how Gusto lists
+        employees, so the printed timecards line up with the Gusto screen."""
+        name = cls._elks_base_name(employee)
         if ' ' in name:
             first, last = name.split(' ', 1)
             return "%s, %s" % (last, first)
@@ -557,10 +571,10 @@ class ElksTimecardReportWizard(models.TransientModel):
         return ('x_pay_category' in employee._fields
                 and employee.x_pay_category == '1099')
 
-    @staticmethod
-    def _elks_split_name(employee):
-        """('First', 'rest') — Gusto Smart Import matches on first/last name."""
-        name = (employee.name or '').strip()
+    @classmethod
+    def _elks_split_name(cls, employee):
+        """('First', 'Last') — role suffix stripped; Gusto matches on these."""
+        name = cls._elks_base_name(employee)
         if ' ' in name:
             return tuple(name.split(' ', 1))
         return name, ''
@@ -597,8 +611,14 @@ class ElksTimecardReportWizard(models.TransientModel):
                     reg += att.worked_hours or 0.0
                 tips += self._elks_paycheck_tips(att, is_tipped)
             first, last = self._elks_split_name(employee)
-            result[(last.strip().lower(), first.strip().lower())] = {
-                'regular': reg, 'event': ev, 'tips': tips}
+            key = (last.strip().lower(), first.strip().lower())
+            # Accumulate: one person may have several role records (e.g. Lounge
+            # + Kitchen), all mapping to the single Gusto employee.
+            d = result.setdefault(
+                key, {'regular': 0.0, 'event': 0.0, 'tips': 0.0})
+            d['regular'] += reg
+            d['event'] += ev
+            d['tips'] += tips
         return result
 
     @staticmethod
