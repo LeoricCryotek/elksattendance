@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <!-- =====================================================================
+         === HUMAN ===
+         The standalone "Gusto Export" screen: pick a pay period, upload Gusto's
+         import template, click Fill, download the filled file. Also the 1099
+         contractor CSV. Separate from the Payroll Timecards pop-up.
+         === AI AGENT ===
+         Fresh form view + act_window for elks.gusto.export.wizard (target=new).
+         New xmlids, so unaffected by any pinned copy of the old wizard view.
+         ===================================================================== -->
+
+    <record id="view_elks_gusto_export_wizard_form" model="ir.ui.view">
+        <field name="name">elks.gusto.export.wizard.form</field>
+        <field name="model">elks.gusto.export.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Gusto Export">
+                <div class="alert alert-info" role="alert">
+                    <strong>How to use:</strong> In Gusto, go to Run Payroll →
+                    Import payroll data → download the CSV template. Upload it
+                    below, pick the pay period, then click
+                    <strong>Fill Gusto Template</strong> and download the result
+                    to re-upload into Gusto.
+                </div>
+                <group>
+                    <group string="Pay Period">
+                        <field name="date_from"/>
+                        <field name="date_to"/>
+                    </group>
+                    <group string="Employees">
+                        <field name="employee_ids" widget="many2many_tags"
+                               placeholder="Leave empty for all paid staff..."/>
+                    </group>
+                </group>
+                <group string="Gusto Import Template">
+                    <field name="gusto_template_file"
+                           filename="gusto_template_filename"
+                           string="Upload Gusto Template"/>
+                    <field name="gusto_template_filename" invisible="1"/>
+                </group>
+                <div class="alert alert-warning" role="alert"
+                     invisible="not no_hours_warning">
+                    <field name="no_hours_warning" readonly="1" nolabel="1"/>
+                </div>
+                <group string="Download" invisible="not csv_file">
+                    <field name="csv_file" filename="csv_filename"/>
+                    <field name="csv_filename" invisible="1"/>
+                </group>
+                <footer>
+                    <button name="action_fill_gusto" string="Fill Gusto Template"
+                            type="object" class="btn-primary"
+                            icon="fa-download"/>
+                    <button name="action_export_1099" string="Gusto 1099 CSV"
+                            type="object" class="btn-secondary"
+                            title="Contractor-payment CSV for event 1099 workers"/>
+                    <button string="Close" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_elks_gusto_export_wizard" model="ir.actions.act_window">
+        <field name="name">Gusto Export</field>
+        <field name="res_model">elks.gusto.export.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

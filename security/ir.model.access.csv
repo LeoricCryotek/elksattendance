@@ -12,3 +12,4 @@ access_elks_timecard_adj_user,elks.timecard.adjustment.user,model_elks_timecard_
 access_elks_timecard_adj_officer,elks.timecard.adjustment.officer,model_elks_timecard_adjustment,hr_attendance.group_hr_attendance_user,1,1,1,1
 access_elks_timecard_adj_portal,elks.timecard.adjustment.portal,model_elks_timecard_adjustment,base.group_portal,1,0,0,0
 access_elks_employee_link_wizard,elks.employee.link.wizard,model_elks_employee_link_wizard,base.group_user,1,1,1,1
+access_gusto_export_wizard,elks.gusto.export.wizard,model_elks_gusto_export_wizard,base.group_user,1,1,1,1
