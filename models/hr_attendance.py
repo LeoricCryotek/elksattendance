@@ -143,46 +143,51 @@ class HrAttendance(models.Model):
             else:
                 att.x_tip_payable = att.x_tip_amount
 
-    def _elks_payroll_event(self):
-        """Use the linked event, or the unique event overlapping an unlinked shift.
-
-        Never change attendance links during payroll export. Ambiguous matches
-        require an explicit event link instead of picking an arbitrary event.
-        """
+    def _elks_payroll_callout_line(self, event):
+        """Payroll requires an approved event and an explicitly named worker."""
         self.ensure_one()
-        if 'x_event_id' not in self._fields:
+        if not event or event.x_approval_state != 'approved' or 'elks.event.callout.line' not in self.env:
+            return False
+        lines = self.env['elks.event.callout.line'].sudo().search([
+            ('callout_id.event_id', '=', event.id),
+            ('callout_id.state', '!=', 'cancelled'),
+            ('employee_id', '=', self.employee_id.id),
+        ])
+        role = self.x_event_role if 'x_event_role' in self._fields else False
+        dept = {'bartender': 'bar', 'kitchen': 'kitchen', 'custodial': 'custodial'}.get(role)
+        preferred = lines.filtered(lambda line: line.callout_id.department == dept) if dept else lines
+        if preferred:
+            lines = preferred
+        if len(lines) > 1:
+            raise UserError(_("Employee is listed on multiple call-outs for this event. Set a department Event Role on the attendance."))
+        return lines[:1]
+
+    def _elks_payroll_event(self):
+        """Resolve only manager-rostered approved events; never auto-link punches."""
+        self.ensure_one()
+        if 'x_event_id' not in self._fields or not self.employee_id:
             return False
         if self.x_event_id:
-            return self.x_event_id
-        if not (self.check_in and self.check_out):
+            return self.x_event_id if self._elks_payroll_callout_line(self.x_event_id) else False
+        if not (self.check_in and self.check_out) or 'elks.event.callout.line' not in self.env:
             return False
-        Event = self.env['project.task'].sudo()
-        if 'x_is_event' not in Event._fields:
-            return False
-        Cron = self.env['elksattendance.timecard.cron']
-        domain = [('x_is_event', '=', True),
-                  ('x_event_date', '>=', Cron._lodge_date(self.check_in) - timedelta(days=1)),
-                  ('x_event_date', '<=', Cron._lodge_date(self.check_out))]
-        if 'parent_id' in Event._fields:
-            domain += [('parent_id', '=', False)]
-        if 'company_id' in Event._fields:
-            domain += ['|', ('company_id', '=', False),
-                       ('company_id', '=', self.employee_id.company_id.id)]
-        matches = Event.search(domain).filtered(
+        lines = self.env['elks.event.callout.line'].sudo().search([
+            ('employee_id', '=', self.employee_id.id),
+            ('callout_id.state', '!=', 'cancelled'),
+            ('callout_id.event_id.x_approval_state', '=', 'approved'),
+        ])
+        events = lines.mapped('callout_id.event_id').filtered(
             lambda event: self._elks_hours_for_event(event) > 0)
-        if len(matches) > 1:
-            raise UserError(_(
-                "More than one event overlaps %(employee)s's shift at %(time)s. "
-                "Set the Event on the attendance before exporting payroll.",
-                employee=self.employee_id.name, time=self.check_in))
-        return matches[:1]
+        if len(events) > 1:
+            raise UserError(_("Multiple rostered events overlap this shift. Set the Event on the attendance."))
+        return events[:1]
 
     def _elks_event_work_hours(self):
         """Pay the entire qualifying event shift at the event rate.
 
         Custodial work requires a named entry on this event's custodial call-out.
         Only event-linked rostered custodial work qualifies outside event hours.
-        All other staff must overlap the actual event, regardless of roster.
+        All workers must be explicitly rostered on an approved event.
         This keeps event shifts entirely out of the regular-hours section.
         """
         self.ensure_one()
@@ -191,17 +196,12 @@ class HrAttendance(models.Model):
             return 0.0
         if not event:
             return 0.0
-        custodial = self._elks_event_pay_role(event) == 'custodial'
-        if custodial:
-            # Custodial is roster-only, even during the event itself.
-            if not self._elks_custodial_callout_line(event):
-                return 0.0
-            if self.x_event_id or self._elks_hours_for_event(event) > 0:
-                return self.worked_hours or 0.0
+        line = self._elks_payroll_callout_line(event)
+        if not line:
             return 0.0
-        if self._elks_hours_for_event(event) > 0:
+        if line.callout_id.department == 'custodial' and self.x_event_id:
             return self.worked_hours or 0.0
-        return 0.0
+        return (self.worked_hours or 0.0) if self._elks_hours_for_event(event) > 0 else 0.0
 
     def _elks_hours_for_event(self, event):
         """Overlap with actual event hours only, including overnight events."""
@@ -224,73 +224,14 @@ class HrAttendance(models.Model):
         return min(self.worked_hours or 0.0,
                    max(0.0, (right - left).total_seconds() / 3600))
 
-    def _elks_custodial_callout_line(self, event):
-        """Only this event's named custodial workers qualify for cleaning pay."""
-        self.ensure_one()
-        if 'elks.event.callout.line' not in self.env:
-            return False
-        return self.env['elks.event.callout.line'].sudo().search([
-            ('callout_id.event_id', '=', event.id),
-            ('callout_id.department', '=', 'custodial'),
-            ('callout_id.state', '!=', 'cancelled'),
-            ('employee_id', '=', self.employee_id.id),
-        ], limit=1)
-
-    def _elks_event_pay_role(self, event):
-        """Recognize custodial work by explicit role, department, or event call-out.
-
-        The employee may belong to Board of Directors (e.g. the custodian), so
-        an event's custodial roster can identify the cleaning role as well.
-        """
-        self.ensure_one()
-        role = self.x_event_role if 'x_event_role' in self._fields else 'event'
-        if role not in ('bartender', 'kitchen', 'custodial'):
-            department = (self.employee_id.department_id.name or '').lower()
-            if any(word in department for word in ('lounge', 'bar')):
-                role = 'bartender'
-            elif 'kitchen' in department:
-                role = 'kitchen'
-            elif any(word in department for word in ('custodial', 'clean')):
-                role = 'custodial'
-        if role not in ('bartender', 'kitchen', 'custodial'):
-            if self._elks_custodial_callout_line(event):
-                role = 'custodial'
-        return role or 'event'
-
     def _elks_effective_event_rate(self):
-        """Event labor rate for actual work, independent of certification.
-
-        Prefer the employee's non-cancelled call-out rate. Unrostered workers
-        use a uniform department call-out rate, then the lodge's role rate.
-        Never use billed rates (which include the event markup).
-        """
+        """Use the named worker's own call-out rate, never a department default."""
         self.ensure_one()
         hours = self._elks_event_work_hours()
-        if not hours or not self.employee_id:
+        if not hours:
             return 0.0, 0.0
-        event = self._elks_payroll_event()
-        role = self._elks_event_pay_role(event)
-        if role == 'custodial':
-            line = self._elks_custodial_callout_line(event)
-            rate = (line.rate or 0.0) if line else 0.0
-            return rate, hours * rate
-        dept = {'bartender': 'bar', 'kitchen': 'kitchen',
-                'custodial': 'custodial'}.get(role)
-        rate = 0.0
-        if 'elks.event.callout.line' in self.env:
-            lines = self.env['elks.event.callout.line'].sudo().search([
-                ('callout_id.event_id', '=', event.id),
-                ('callout_id.state', '!=', 'cancelled'),
-            ])
-            if dept:
-                lines = lines.filtered(lambda line: line.callout_id.department == dept)
-            own = lines.filtered(lambda line: line.employee_id == self.employee_id)
-            candidates = own if own else lines
-            rates = set(line.rate for line in candidates if line.rate > 0)
-            if len(rates) == 1:
-                rate = rates.pop()
-        if not rate and hasattr(event, '_event_role_rates'):
-            rate = event._event_role_rates(event._event_settings()).get(role or 'event', 0.0)
+        line = self._elks_payroll_callout_line(self._elks_payroll_event())
+        rate = (line.rate or 0.0) if line else 0.0
         return rate, hours * rate
 
     def _elks_event_debug(self):
@@ -298,6 +239,10 @@ class HrAttendance(models.Model):
         self.ensure_one()
         if 'x_event_id' not in self._fields or not self.x_event_id:
             return ''
+        if self.x_event_id.x_approval_state != 'approved':
+            return _('%s: event is not approved') % self.x_event_id.name
+        if not self._elks_payroll_callout_line(self.x_event_id):
+            return _('%s: employee must be added to the event call-out') % self.x_event_id.name
         if not self._elks_event_work_hours():
             return _("%s: shift is outside event hours (before/after cleaning pay applies only to custodial work)") % self.x_event_id.name
         if self._elks_effective_event_rate()[0] > 0:

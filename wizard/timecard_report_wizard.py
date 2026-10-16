@@ -357,6 +357,7 @@ class ElksTimecardReportWizard(models.TransientModel):
             ('employee_id', '!=', False),
             ('callout_id.state', '=', 'certified'),
             ('callout_id.department', '!=', 'custodial'),
+            ('callout_id.event_id.x_approval_state', '=', 'approved'),
             ('callout_id.event_id.x_event_date', '>=', self.date_from),
             ('callout_id.event_id.x_event_date', '<=', self.date_to),
         ]

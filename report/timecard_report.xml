@@ -124,8 +124,8 @@
                             <!-- Event shifts are paid at the call-out (event) rate
                                  INSTEAD of the normal wage, so pull them out of the
                                  regular-hours table and price them in the Event Pay
-                                 section below. Eligibility follows the event schedule,
-                                 independently of certification and roster membership. -->
+                                 section below. Eligibility requires an approved event and a named
+                                 entry on the department call-out. -->
                             <t t-set="elks_ev_atts" t-value="att_recs.filtered(lambda a: a._elks_effective_event_rate()[0] &gt; 0)"/>
                             <t t-set="records" t-value="(att_recs - elks_ev_atts).sorted(key=lambda a: a.check_in)"/>
                             <t t-set="total_hours" t-value="0"/>
@@ -350,7 +350,7 @@
                                     </table>
                                     <p style="font-size:10px; color:#666; margin-top:3px;">
                                         <t t-if="is_1099">1099 non-employee compensation — event hours at the call-out rate shown, paid without tax withholding.</t>
-                                        <t t-else="">The entire qualifying shift is paid at the event rate and excluded from regular hours above. Cleaning before or after the event is paid only for employees listed on that event's custodial call-out, at their listed rate. Payroll calculates the pay.</t>
+                                        <t t-else="">Employees must be listed on a call-out for an approved event. The entire qualifying shift is paid at their listed event rate and excluded from regular hours above. Cleaning before or after the event is paid only for employees listed on that event's custodial call-out, at their listed rate. Payroll calculates the pay.</t>
                                     </p>
                                 </div>
                             </t>
