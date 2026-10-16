@@ -40,6 +40,9 @@ and reported on (e.g. in the payroll timecard report).
 It is only editable when the employee is flagged as tipped.
 """
 import logging
+from datetime import datetime, time, timedelta
+
+import pytz
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
@@ -140,70 +143,104 @@ class HrAttendance(models.Model):
             else:
                 att.x_tip_payable = att.x_tip_amount
 
-    # === HUMAN ===
-    # The special event (call-out) pay rate for this shift, for ANY worker — a
-    # shift linked to a department call-out whose certified roster includes this
-    # person. Event shifts are paid at THIS rate instead of the normal wage, so
-    # the timecard shows them separately and pulls them out of regular hours.
-    # === AI AGENT ===
-    # elksevent only PRICES 1099 (its x_event_pay/_rate are 0 for W-2); this gives
-    # the rate for W-2 too, mirroring elksevent's match: certified callout line for
-    # (event, employee), department by role when known. Plain method (not a field)
-    # so it stays safe when elksevent isn't installed. Returns (rate, pay).
-    def _elks_effective_event_rate(self):
-        self.ensure_one()
-        if 'x_event_id' not in self._fields \
-                or 'elks.event.callout.line' not in self.env:
-            return 0.0, 0.0
-        if not (self.x_event_id and self.employee_id and self.check_in):
-            return 0.0, 0.0
-        Line = self.env['elks.event.callout.line'].sudo()
-        domain = [
-            ('callout_id.event_id', '=', self.x_event_id.id),
-            ('callout_id.state', '=', 'certified'),
-            ('employee_id', '=', self.employee_id.id),
-        ]
-        role_dept = {'bartender': 'bar', 'kitchen': 'kitchen',
-                     'custodial': 'custodial'}
-        dept = (role_dept.get(self.x_event_role)
-                if 'x_event_role' in self._fields else None)
-        line = Line.browse()
-        if dept:
-            line = Line.search(
-                domain + [('callout_id.department', '=', dept)], limit=1)
-        if not line:
-            line = Line.search(domain, limit=1)
-        if not line:
-            return 0.0, 0.0
-        # Only hours worked on the EVENT DATE, inside THIS person's rostered
-        # start→end window (from the staff roster line), are paid at the event
-        # rate. Setup/cleanup, or a punch on a different day, stay on the wage.
-        if not self._elks_punch_in_roster_window(line):
-            return 0.0, 0.0
-        rate = line.rate or 0.0
-        return rate, (self.worked_hours or 0.0) * rate
+    def _elks_payroll_event(self):
+        """Use the linked event, or the unique event overlapping an unlinked shift.
 
-    # === HUMAN ===
-    # Did this shift fall on the EVENT DATE? That's the rule: on the day of the
-    # event, the hours a rostered person clocks in/out count toward the event
-    # rate. Work on a DIFFERENT day (e.g. setup the day before, cleanup the day
-    # after) is NOT event time — it's paid the normal wage.
-    # === AI AGENT ===
-    # Simple, robust date match: the punch's LODGE-LOCAL date must equal the
-    # callout line's event_date. We deliberately do NOT test the per-person
-    # start/end time window — that was too fragile (it dropped real event shifts
-    # whose rostered times didn't line up exactly with the clocked times). The
-    # date check still excludes the wrong-day auto-linked punches that caused the
-    # original bug. Read-only; never writes.
-    def _elks_punch_in_roster_window(self, line):
+        Never change attendance links during payroll export. Ambiguous matches
+        require an explicit event link instead of picking an arbitrary event.
+        """
         self.ensure_one()
-        if not line or not self.check_in:
+        if 'x_event_id' not in self._fields:
             return False
-        date = line.callout_id.event_date
-        if not date:
+        if self.x_event_id:
+            return self.x_event_id
+        if not (self.check_in and self.check_out):
+            return False
+        Event = self.env['project.task'].sudo()
+        if 'x_is_event' not in Event._fields:
             return False
         Cron = self.env['elksattendance.timecard.cron']
-        return Cron._lodge_date(self.check_in) == date
+        domain = [('x_is_event', '=', True),
+                  ('x_event_date', '>=', Cron._lodge_date(self.check_in) - timedelta(days=1)),
+                  ('x_event_date', '<=', Cron._lodge_date(self.check_out))]
+        if 'company_id' in Event._fields:
+            domain += [('company_id', '=', self.employee_id.company_id.id)]
+        matches = Event.search(domain).filtered(
+            lambda event: self._elks_hours_for_event(event) > 0)
+        if len(matches) > 1:
+            raise UserError(_(
+                "More than one event overlaps %(employee)s's shift at %(time)s. "
+                "Set the Event on the attendance before exporting payroll.",
+                employee=self.employee_id.name, time=self.check_in))
+        return matches[:1]
+
+    def _elks_event_work_hours(self):
+        """Actual clocked hours within the event schedule, regardless of roster."""
+        self.ensure_one()
+        event = self._elks_payroll_event()
+        return self._elks_hours_for_event(event) if event else 0.0
+
+    def _elks_hours_for_event(self, event):
+        """Intersect a full shift with a lodge-local event (including overnight)."""
+        self.ensure_one()
+        if not (self.check_in and self.check_out and event.x_event_date):
+            return 0.0
+        start = event.x_event_start_time or 0.0
+        end = event.x_event_end_time or 0.0
+        if start == end:
+            return 0.0
+        tz = self.env['elksattendance.timecard.cron']._lodge_tz()
+        midnight = datetime.combine(event.x_event_date, time())
+        def utc(hours):
+            return tz.localize(midnight + timedelta(hours=hours)).astimezone(
+                pytz.utc).replace(tzinfo=None)
+        left = max(self.check_in, utc(start))
+        right = min(self.check_out, utc(end if end > start else end + 24))
+        return min(self.worked_hours or 0.0,
+                   max(0.0, (right - left).total_seconds() / 3600))
+
+    def _elks_effective_event_rate(self):
+        """Event labor rate for actual work, independent of certification.
+
+        Prefer the employee's non-cancelled call-out rate. Unrostered workers
+        use a uniform department call-out rate, then the lodge's role rate.
+        Never use billed rates (which include the event markup).
+        """
+        self.ensure_one()
+        hours = self._elks_event_work_hours()
+        if not hours or not self.employee_id:
+            return 0.0, 0.0
+        event = self._elks_payroll_event()
+        role = self.x_event_role if 'x_event_role' in self._fields else 'event'
+        dept = {'bartender': 'bar', 'kitchen': 'kitchen',
+                'custodial': 'custodial'}.get(role)
+        rate = 0.0
+        if 'elks.event.callout.line' in self.env:
+            lines = self.env['elks.event.callout.line'].sudo().search([
+                ('callout_id.event_id', '=', event.id),
+                ('callout_id.state', '!=', 'cancelled'),
+            ])
+            if dept:
+                lines = lines.filtered(lambda line: line.callout_id.department == dept)
+            own = lines.filtered(lambda line: line.employee_id == self.employee_id)
+            candidates = own if own else lines
+            rates = set(line.rate for line in candidates if line.rate > 0)
+            if len(rates) == 1:
+                rate = rates.pop()
+        if not rate and hasattr(event, '_event_role_rates'):
+            rate = event._event_role_rates(event._event_settings()).get(role or 'event', 0.0)
+        return rate, hours * rate
+
+    def _elks_event_debug(self):
+        """Explain linked shifts that could not be priced for payroll."""
+        self.ensure_one()
+        if 'x_event_id' not in self._fields or not self.x_event_id:
+            return ''
+        if not self._elks_event_work_hours():
+            return _("%s: no clocked overlap with the event schedule; check event times") % self.x_event_id.name
+        if self._elks_effective_event_rate()[0] > 0:
+            return ''
+        return _("%s: no unambiguous event pay rate; check call-out and lodge role rates") % self.x_event_id.name
 
     # === HUMAN ===
     # Whether a shift counts as PAID (payroll) hours or VOLUNTEER / CHARITY

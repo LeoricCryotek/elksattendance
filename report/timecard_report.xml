@@ -124,11 +124,10 @@
                             <!-- Event shifts are paid at the call-out (event) rate
                                  INSTEAD of the normal wage, so pull them out of the
                                  regular-hours table and price them in the Event Pay
-                                 section below. rate>0 means a certified department
-                                 call-out matched this shift for this person (any
-                                 pay category). -->
+                                 section below. Eligibility follows the event schedule,
+                                 independently of certification and roster membership. -->
                             <t t-set="elks_ev_atts" t-value="att_recs.filtered(lambda a: a._elks_effective_event_rate()[0] &gt; 0)"/>
-                            <t t-set="records" t-value="(att_recs - elks_ev_atts).sorted(key=lambda a: a.check_in)"/>
+                            <t t-set="records" t-value="att_recs.filtered(lambda a: a not in elks_ev_atts or (a.worked_hours or 0.0) - a._elks_event_work_hours() &gt; 0.000001).sorted(key=lambda a: a.check_in)"/>
                             <t t-set="total_hours" t-value="0"/>
                             <t t-set="is_tipped" t-value="employee.x_receives_tips"/>
                             <!-- Event gratuity (elksevent) rides on the timecard even
@@ -156,12 +155,12 @@
                                 </thead>
                                 <tbody>
                                     <t t-foreach="records" t-as="att">
-                                        <t t-set="hours" t-value="att.worked_hours or 0.0"/>
+                                        <t t-set="hours" t-value="max(0.0, (att.worked_hours or 0.0) - (att._elks_event_work_hours() if att in elks_ev_atts else 0.0))"/>
                                         <t t-set="total_hours" t-value="total_hours + hours"/>
                                         <!-- Personal tip uses the approver's per-shift
                                              source (x_tip_payable = entered or Clover). -->
                                         <t t-set="row_tip"
-                                           t-value="(att.x_tip_payable or 0.0 if is_tipped else 0.0) + (att.x_gratuity_share or 0.0 if 'x_gratuity_share' in att._fields else 0.0) + (att.x_coordinator_fee_share or 0.0 if 'x_coordinator_fee_share' in att._fields else 0.0)"/>
+                                           t-value="((att.x_tip_payable or 0.0 if is_tipped else 0.0) + (att.x_gratuity_share or 0.0 if 'x_gratuity_share' in att._fields else 0.0) + (att.x_coordinator_fee_share or 0.0 if 'x_coordinator_fee_share' in att._fields else 0.0)) if att not in elks_ev_atts else 0.0"/>
                                         <t t-if="show_tips">
                                             <t t-set="total_tips" t-value="total_tips + row_tip"/>
                                         </t>
@@ -251,9 +250,29 @@
                                t-value="('x_pay_category' in employee._fields) and employee.x_pay_category == '1099'"/>
                             <t t-set="ev_lines"
                                t-value="events_by_emp.get(employee) if (is_1099 and not elks_ev_atts) else None"/>
-                            <!-- Event tips (gratuity pool share) accumulate here so they
+            <!-- Event tips (gratuity pool share) accumulate here so they
                                  can be rolled into the single pay-period tips total below. -->
                             <t t-set="ev_tips_total" t-value="0.0"/>
+
+                            <!-- DIAGNOSTIC: shifts tied to an event but NOT paid the
+                                 event rate — show why (not on sheet / sheet not Certified
+                                 / wrong day / $0 rate) so payroll can fix it in elksevent. -->
+                            <t t-set="ev_notes" t-value="[]"/>
+                            <t t-foreach="att_recs" t-as="a">
+                                <t t-set="why" t-value="a._elks_event_debug()"/>
+                                <t t-if="why and (why not in ev_notes)">
+                                    <t t-set="ev_notes" t-value="ev_notes + [why]"/>
+                                </t>
+                            </t>
+                            <t t-if="ev_notes">
+                                <div style="margin-top:12px; padding:6px 8px; border:1px solid #d9a; background:#fdf3f3; font-size:10px; color:#a00;">
+                                    <strong>Event pay not applied —</strong> these shifts are linked to an event but didn't get the event rate:
+                                    <ul style="margin:3px 0 0 16px; padding:0;">
+                                        <li t-foreach="ev_notes" t-as="n"><span t-esc="n"/></li>
+                                    </ul>
+                                </div>
+                            </t>
+
                             <t t-if="elks_ev_atts or ev_lines">
                                 <div style="margin-top:25px;">
                                     <div style="background:#003366; color:#fff; padding:5px 8px; font-weight:bold; font-size:12px;">
@@ -280,7 +299,7 @@
                                                      computes the actual pay from hours x rate. -->
                                                 <t t-foreach="elks_ev_atts" t-as="att">
                                                     <t t-set="er" t-value="att._elks_effective_event_rate()"/>
-                                                    <t t-set="ev_hours" t-value="ev_hours + (att.worked_hours or 0.0)"/>
+                                                    <t t-set="ev_hours" t-value="ev_hours + att._elks_event_work_hours()"/>
                                                     <!-- Tips on an event shift: the gratuity-pool share plus any
                                                          Clover/kiosk tip approved for that shift (payable value). -->
                                                     <t t-set="row_ev_tip"
@@ -294,8 +313,8 @@
                                                             <t t-if="att.check_out"><span t-esc="wizard._format_time(att.check_out)"/></t>
                                                             <t t-else=""><span style="color:red; font-style:italic;">OPEN</span></t>
                                                         </td>
-                                                        <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="att.x_event_id.name or ''"/></td>
-                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="wizard._format_hours(att.worked_hours or 0.0)"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="att._elks_payroll_event().name or ''"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="wizard._format_hours(att._elks_event_work_hours())"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % er[0]"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % row_ev_tip"/></td>
                                                     </tr>
@@ -331,7 +350,7 @@
                                     </table>
                                     <p style="font-size:10px; color:#666; margin-top:3px;">
                                         <t t-if="is_1099">1099 non-employee compensation — event hours at the call-out rate shown, paid without tax withholding.</t>
-                                        <t t-else="">Paid at the event (call-out) rate shown in place of the normal wage for these shifts; event hours are excluded from the regular hours above. Payroll calculates the pay.</t>
+                                        <t t-else="">Hours within the event schedule are paid at the event rate shown; remaining shift hours are included in regular hours above. Check-in/out show the full shift. Payroll calculates the pay.</t>
                                     </p>
                                 </div>
                             </t>

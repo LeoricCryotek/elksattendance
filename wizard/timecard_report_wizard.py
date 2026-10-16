@@ -606,7 +606,9 @@ class ElksTimecardReportWizard(models.TransientModel):
             for att in atts:
                 rate, _pay = att._elks_effective_event_rate()
                 if rate > 0:
-                    ev += att.worked_hours or 0.0
+                    event_hours = att._elks_event_work_hours()
+                    ev += event_hours
+                    reg += max(0.0, (att.worked_hours or 0.0) - event_hours)
                 else:
                     reg += att.worked_hours or 0.0
                 tips += self._elks_paycheck_tips(att, is_tipped)
@@ -758,7 +760,7 @@ class ElksTimecardReportWizard(models.TransientModel):
                 continue
             d = rows[emp]
             d['labor'] += pay
-            d['hours'] += att.worked_hours or 0.0
+            d['hours'] += att._elks_event_work_hours()
             if 'x_gratuity_share' in att._fields:
                 d['grat'] += att.x_gratuity_share or 0.0
             clocked.add(emp)
