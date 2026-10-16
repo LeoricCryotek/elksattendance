@@ -158,8 +158,25 @@ class HrAttendance(models.Model):
         preferred = lines.filtered(lambda line: line.callout_id.department == dept) if dept else lines
         if preferred:
             lines = preferred
-        if len(lines) > 1:
-            raise UserError(_("Employee is listed on multiple call-outs for this event. Set a department Event Role on the attendance."))
+        if len(lines) > 1 and not dept:
+            department = (self.employee_id.department_id.name or '').lower()
+            inferred = ('bar' if 'lounge' in department or 'bar' in department
+                        else 'kitchen' if 'kitchen' in department
+                        else 'custodial' if 'custodial' in department or 'clean' in department
+                        else None)
+            preferred = lines.filtered(lambda line: line.callout_id.department == inferred)
+            if preferred:
+                lines = preferred
+        # Repeated entries with the same department and rate have identical
+        # payroll meaning. Select one, never sum them or pay the shift twice.
+        meanings = {(line.callout_id.department, line.rate or 0.0) for line in lines}
+        if len(meanings) > 1:
+            if self.env.context.get('elks_payroll_strict'):
+                raise UserError(_(
+                    "Conflicting call-out departments or rates for %(employee)s "
+                    "on %(event)s. Correct the roster or set the attendance Event Role before exporting payroll.",
+                    employee=self.employee_id.name, event=event.name))
+            return False
         return lines[:1]
 
     def _elks_payroll_event(self):
@@ -242,7 +259,7 @@ class HrAttendance(models.Model):
         if self.x_event_id.x_approval_state != 'approved':
             return _('%s: event is not approved') % self.x_event_id.name
         if not self._elks_payroll_callout_line(self.x_event_id):
-            return _('%s: employee must be added to the event call-out') % self.x_event_id.name
+            return _('%s: no unique call-out match; add the employee or resolve conflicting departments/rates on the roster') % self.x_event_id.name
         if not self._elks_event_work_hours():
             return _("%s: shift is outside event hours (before/after cleaning pay applies only to custodial work)") % self.x_event_id.name
         if self._elks_effective_event_rate()[0] > 0:

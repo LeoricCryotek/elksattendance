@@ -605,7 +605,7 @@ class ElksTimecardReportWizard(models.TransientModel):
             is_tipped = employee.x_receives_tips
             reg = ev = tips = 0.0
             for att in atts:
-                rate, _pay = att._elks_effective_event_rate()
+                rate, _pay = att.with_context(elks_payroll_strict=True)._elks_effective_event_rate()
                 if rate > 0:
                     event_hours = att._elks_event_work_hours()
                     ev += event_hours
@@ -756,7 +756,7 @@ class ElksTimecardReportWizard(models.TransientModel):
             emp = att.employee_id
             if not self._elks_is_1099(emp):
                 continue
-            rate, pay = att._elks_effective_event_rate()
+            rate, pay = att.with_context(elks_payroll_strict=True)._elks_effective_event_rate()
             if rate <= 0:
                 continue
             d = rows[emp]
