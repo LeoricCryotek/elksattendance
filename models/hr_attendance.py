@@ -175,10 +175,14 @@ class HrAttendance(models.Model):
         return matches[:1]
 
     def _elks_event_work_hours(self):
-        """Actual clocked hours within the event schedule, regardless of roster."""
+        """Pay the entire qualifying event shift at the event rate.
+
+        Schedule overlap establishes eligibility; it does not clip paid hours.
+        This keeps event shifts entirely out of the regular-hours section.
+        """
         self.ensure_one()
         event = self._elks_payroll_event()
-        return self._elks_hours_for_event(event) if event else 0.0
+        return (self.worked_hours or 0.0) if event and self._elks_hours_for_event(event) > 0 else 0.0
 
     def _elks_hours_for_event(self, event):
         """Intersect a full shift with a lodge-local event (including overnight)."""

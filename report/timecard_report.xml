@@ -127,7 +127,7 @@
                                  section below. Eligibility follows the event schedule,
                                  independently of certification and roster membership. -->
                             <t t-set="elks_ev_atts" t-value="att_recs.filtered(lambda a: a._elks_effective_event_rate()[0] &gt; 0)"/>
-                            <t t-set="records" t-value="att_recs.filtered(lambda a: a not in elks_ev_atts or (a.worked_hours or 0.0) - a._elks_event_work_hours() &gt; 0.000001).sorted(key=lambda a: a.check_in)"/>
+                            <t t-set="records" t-value="(att_recs - elks_ev_atts).sorted(key=lambda a: a.check_in)"/>
                             <t t-set="total_hours" t-value="0"/>
                             <t t-set="is_tipped" t-value="employee.x_receives_tips"/>
                             <!-- Event gratuity (elksevent) rides on the timecard even
@@ -350,7 +350,7 @@
                                     </table>
                                     <p style="font-size:10px; color:#666; margin-top:3px;">
                                         <t t-if="is_1099">1099 non-employee compensation — event hours at the call-out rate shown, paid without tax withholding.</t>
-                                        <t t-else="">Hours within the event schedule are paid at the event rate shown; remaining shift hours are included in regular hours above. Check-in/out show the full shift. Payroll calculates the pay.</t>
+                                        <t t-else="">The entire qualifying event shift is paid at the event (call-out) rate shown and excluded from regular hours above. Payroll calculates the pay.</t>
                                     </p>
                                 </div>
                             </t>
