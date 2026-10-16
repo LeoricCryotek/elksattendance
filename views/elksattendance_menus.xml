@@ -18,6 +18,14 @@
               action="action_elks_timecard_report_wizard"
               sequence="20"/>
 
+    <!-- Same wizard, surfaced as its own Reporting entry so the Gusto export is
+         easy to find (period picker + Gusto template upload + Fill button). -->
+    <menuitem id="menu_attendance_gusto_export"
+              name="Gusto Payroll Export"
+              parent="hr_attendance.menu_hr_attendance_reporting"
+              action="action_elks_timecard_report_wizard"
+              sequence="25"/>
+
     <!-- Also keep it accessible from Elks Charity → Reports
          if elkscharity is installed (cross-module menu) -->
     <menuitem id="menu_elkscharity_timecard_report"

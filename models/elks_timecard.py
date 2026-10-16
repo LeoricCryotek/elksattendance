@@ -340,31 +340,40 @@ class ElksTimecard(models.Model):
     # correct card is (re)created on demand by _get_or_create.
     @api.model
     def _elks_prune_wrong_boundary_cards(self):
-        Cron = self.env['elksattendance.timecard.cron']
+        # Wrapped so this cleanup can NEVER abort a module upgrade. A single
+        # un-deletable card (locked row, stray related record) must not roll back
+        # the whole upgrade — that would silently block every view/code change.
+        removed = self.browse()
         try:
-            freq = self._frequency()
-        except Exception:  # noqa: BLE001 — never let cleanup abort an upgrade
-            freq = 'semi_monthly'
-        today = Cron._lodge_today()
-        candidates = self.sudo().search([
-            ('period_end', '>=', today),
-            ('state', '!=', 'approved'),
-        ])
-        to_remove = self.browse()
-        for tc in candidates:
-            if not (tc.period_start and tc.period_end):
-                continue
-            start, end = Cron._get_current_period(tc.period_start, freq)
-            if (tc.period_start, tc.period_end) != (start, end):
-                to_remove |= tc
-        if to_remove:
-            _logger.info(
-                "elks.timecard: pruning %d wrong-boundary duplicate card(s): %s",
-                len(to_remove),
-                [(t.employee_id.name, str(t.period_start), str(t.period_end))
-                 for t in to_remove])
-            to_remove.sudo().unlink()
-        return to_remove
+            Cron = self.env['elksattendance.timecard.cron']
+            try:
+                freq = self._frequency()
+            except Exception:  # noqa: BLE001
+                freq = 'semi_monthly'
+            today = Cron._lodge_today()
+            candidates = self.sudo().search([
+                ('period_end', '>=', today),
+                ('state', '!=', 'approved'),
+            ])
+            for tc in candidates:
+                try:
+                    if not (tc.period_start and tc.period_end):
+                        continue
+                    start, end = Cron._get_current_period(tc.period_start, freq)
+                    if (tc.period_start, tc.period_end) == (start, end):
+                        continue
+                    _logger.info(
+                        "elks.timecard: pruning wrong-boundary card %s (%s–%s)",
+                        tc.employee_id.name, tc.period_start, tc.period_end)
+                    tc.sudo().unlink()
+                    removed |= tc
+                except Exception:  # noqa: BLE001 — skip this card, keep going
+                    _logger.exception(
+                        "elks.timecard: could not prune card id=%s; skipping",
+                        tc.id)
+        except Exception:  # noqa: BLE001 — never raise out of cleanup
+            _logger.exception("elks.timecard: prune cleanup failed; ignoring")
+        return removed
 
     @api.model
     def _elks_employees_for_user(self, user):
