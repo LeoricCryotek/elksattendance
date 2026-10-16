@@ -107,6 +107,11 @@
                                             <p style="margin:4px 0 0 0; font-size:11px; color:#888;">
                                                 Printed: <span t-esc="time.strftime('%m/%d/%Y')"/>
                                             </p>
+                                            <!-- Running module version, so you can see at a glance
+                                                 which deployed code produced this timecard. -->
+                                            <p style="margin:2px 0 0 0; font-size:9px; color:#bbb;">
+                                                elksattendance v<span t-esc="wizard.env['ir.module.module'].sudo().search([('name', '=', 'elksattendance')], limit=1).installed_version"/>
+                                            </p>
                                         </td>
                                     </tr>
                                 </table>
