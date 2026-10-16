@@ -101,6 +101,26 @@ class HrEmployee(models.Model):
              "for tip tracking on payroll timecards.",
     )
 
+    # === HUMAN ===
+    # Extra people who can approve this employee's timecard and set their tips,
+    # ON TOP OF their primary Attendance Approver. Use this when more than one
+    # manager covers the same person (e.g. a bar manager AND the GM).
+    # === AI AGENT ===
+    # Read by elks.timecard._compute_approver_ids (unioned with the primary
+    # approver). Every approver check routes through _elks_is_approver_for, so
+    # adding a user here grants them tip-editing, time edits, and final sign-off
+    # for this employee's cards. tracking so changes are audited.
+    x_attendance_approver_ids = fields.Many2many(
+        "res.users",
+        "hr_employee_extra_approver_rel",
+        "employee_id",
+        "user_id",
+        string="Additional Timecard Approvers",
+        tracking=True,
+        help="Extra users allowed to approve this employee's timecards and set "
+             "their tips, in addition to the primary Attendance Approver.",
+    )
+
     x_manager_user_ids = fields.Many2many(
         "res.users",
         "hr_employee_manager_user_rel",

@@ -117,8 +117,17 @@ class ElksTimecard(models.Model):
     approver_id = fields.Many2one(
         'res.users', string="Attendance Approver",
         compute='_compute_approver_id', store=True,
-        help="The employee's Attendance approver, who gives the final "
+        help="The employee's PRIMARY Attendance approver, who gives the final "
              "sign-off.")
+
+    # Every user allowed to approve/manage this card: the primary approver PLUS
+    # the employee's additional approvers. All approver checks use this set.
+    approver_ids = fields.Many2many(
+        'res.users', 'elks_timecard_approver_rel', 'timecard_id', 'user_id',
+        string="Timecard Approvers", compute='_compute_approver_ids',
+        store=True,
+        help="Everyone who may approve this timecard and set its tips — the "
+             "primary approver and any additional approvers on the employee.")
 
     # === HUMAN ===
     # "Closed" archives an old period so it stops showing on the approver's
@@ -197,6 +206,16 @@ class ElksTimecard(models.Model):
                 emp.attendance_manager_id
                 if emp and 'attendance_manager_id' in emp._fields
                 else False)
+
+    @api.depends('approver_id', 'employee_id',
+                 'employee_id.x_attendance_approver_ids')
+    def _compute_approver_ids(self):
+        for tc in self:
+            users = tc.approver_id
+            emp = tc.employee_id
+            if emp and 'x_attendance_approver_ids' in emp._fields:
+                users |= emp.x_attendance_approver_ids
+            tc.approver_ids = users
 
     @api.depends('employee_id', 'period_start', 'period_end')
     def _compute_attendances(self):
@@ -395,8 +414,13 @@ class ElksTimecard(models.Model):
         Lets an approver see/act on a team member's card even if that
         member has never opened the portal themselves.
         """
-        emps = self.env['hr.employee'].sudo().search(
-            [('attendance_manager_id', '=', user.id)])
+        # Primary approver (attendance_manager_id) OR an additional approver
+        # (x_attendance_approver_ids) — both see the cards they can approve.
+        emps = self.env['hr.employee'].sudo().search([
+            '|',
+            ('attendance_manager_id', '=', user.id),
+            ('x_attendance_approver_ids', 'in', user.id),
+        ])
         for emp in emps:
             self._elks_ensure_for_employee(emp)
         return emps
@@ -426,9 +450,9 @@ class ElksTimecard(models.Model):
             or (user.partner_id and emp.work_contact_id == user.partner_id)))
 
     def _elks_is_approver_for(self, user):
-        """True if `user` is this card's Attendance approver."""
+        """True if `user` is ANY approver on this card (primary or additional)."""
         self.ensure_one()
-        return bool(self.approver_id and self.approver_id == user)
+        return bool(user and user in self.approver_ids)
 
     # === HUMAN ===
     # The approver chooses, per shift line, whether that day's payable tip is the
@@ -620,10 +644,10 @@ class ElksTimecard(models.Model):
     # tuples and is what enforces "approval can't survive a time change".
     # ------------------------------------------------------------------
     def _notify_approver_to_review(self):
-        """Email the Attendance approver that the employee has signed off."""
+        """Email EVERY approver (primary + additional) that the employee signed."""
         self.ensure_one()
-        approver = self.approver_id
-        if not approver or not approver.email:
+        emails = [a.email for a in self.approver_ids if a.email]
+        if not emails:
             return
         period = "%s – %s" % (self.period_start.strftime('%m/%d/%Y'),
                               self.period_end.strftime('%m/%d/%Y'))
@@ -637,7 +661,7 @@ class ElksTimecard(models.Model):
                self._elks_portal_url(), _("Review &amp; approve"))
         )
         self.env['elksattendance.timecard.cron']._elks_send_mail(
-            [approver.email], subject, body)
+            emails, subject, body)
 
     def _elks_create_suggestion(self, attendance, proposed_in, proposed_out,
                                 reason, user):

@@ -21,6 +21,11 @@
                 <group string="Tip / Gratuity Tracking">
                     <field name="x_receives_tips"/>
                 </group>
+                <group string="Attendance Approval">
+                    <field name="x_attendance_approver_ids"
+                           widget="many2many_tags"
+                           placeholder="Extra approvers (besides the primary approver)…"/>
+                </group>
             </xpath>
             <!-- Header button to grant the employee a portal login -->
             <xpath expr="//header" position="inside">

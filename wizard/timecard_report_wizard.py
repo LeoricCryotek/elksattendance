@@ -98,6 +98,10 @@ class ElksTimecardReportWizard(models.TransientModel):
     # CSV output (stored on the transient so the user can download)
     csv_file = fields.Binary("CSV File", readonly=True)
     csv_filename = fields.Char("Filename", readonly=True)
+    # Upload slot for Gusto's own import template (downloaded from Gusto's
+    # "Import payroll data" screen). We fill its hours/tips and hand it back.
+    gusto_template_file = fields.Binary("Gusto Template")
+    gusto_template_filename = fields.Char("Gusto Template Filename")
 
     # ------------------------------------------------------------------
     # Defaults
@@ -374,7 +378,20 @@ class ElksTimecardReportWizard(models.TransientModel):
         self.ensure_one()
         emps = set(self._get_attendance_data().keys()) \
             | set(self._get_event_1099_data().keys())
-        return sorted(emps, key=lambda e: e.name or '')
+        # Sort by LAST name then first, to match Gusto's ordering on the
+        # printed stack of timecards.
+        return sorted(emps, key=lambda e: tuple(
+            s.lower() for s in self._elks_split_name(e)[::-1]))
+
+    @staticmethod
+    def _elks_display_name(employee):
+        """'Last, First' — matches how Gusto lists employees, so the printed
+        timecards line up with the Gusto payroll screen."""
+        name = (employee.name or '').strip()
+        if ' ' in name:
+            first, last = name.split(' ', 1)
+            return "%s, %s" % (last, first)
+        return name
 
     # === HUMAN ===
     # The timezone the timecard prints in — the LODGE's local time, so a shift
@@ -558,43 +575,140 @@ class ElksTimecardReportWizard(models.TransientModel):
             tip += att.x_coordinator_fee_share or 0.0
         return tip
 
-    def action_export_gusto_hours(self):
-        """Gusto Smart Import CSV: W-2 regular hours + paycheck tips + event pay."""
-        self.ensure_one()
+    def _elks_period_hours_by_name(self):
+        """{(last_lower, first_lower): {regular, event, tips}} for W-2 staff.
+
+        'regular' = non-event hours (primary job); 'event' = hours worked at the
+        event call-out rate (go on the employee's event job row); 'tips' = the
+        period's paycheck tips.
+        """
         grouped = self._get_attendance_data()
-
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow(['First name', 'Last name', 'Regular hours',
-                         'Paycheck tips', 'Event pay'])
-
-        for employee in sorted(grouped.keys(), key=lambda e: e.name or ''):
-            # 1099 contractors are paid on the contractor file, not here.
+        result = {}
+        for employee, atts in grouped.items():
             if self._elks_is_1099(employee):
                 continue
             is_tipped = employee.x_receives_tips
-            reg_hours = 0.0
-            event_pay = 0.0
-            tips = 0.0
-            for att in grouped[employee]:
-                rate, pay = att._elks_effective_event_rate()
+            reg = ev = tips = 0.0
+            for att in atts:
+                rate, _pay = att._elks_effective_event_rate()
                 if rate > 0:
-                    event_pay += pay
+                    ev += att.worked_hours or 0.0
                 else:
-                    reg_hours += att.worked_hours or 0.0
+                    reg += att.worked_hours or 0.0
                 tips += self._elks_paycheck_tips(att, is_tipped)
             first, last = self._elks_split_name(employee)
-            writer.writerow([
-                first, last,
-                round(reg_hours, 2),
-                round(tips, 2) or '',
-                round(event_pay, 2) or '',
-            ])
+            result[(last.strip().lower(), first.strip().lower())] = {
+                'regular': reg, 'event': ev, 'tips': tips}
+        return result
 
+    @staticmethod
+    def _elks_fmt_hours(val):
+        return ('%.2f' % round(val or 0.0, 2))
+
+    def action_export_gusto_hours(self):
+        """Fill Gusto's own import template with this period's hours + tips.
+
+        The user downloads the CSV template from Gusto's "Import payroll data"
+        screen (it already lists every employee, their exact job titles and
+        Gusto IDs) and uploads it here. We match each row by name, put non-event
+        hours + paycheck tips on the "(Primary)" job row and event hours on the
+        "Event Bartender" row, and hand back the same file ready to re-upload.
+        """
+        self.ensure_one()
+        if not self.gusto_template_file:
+            raise UserError(_(
+                "Upload the Gusto import template first.\n\n"
+                "In Gusto: Run Payroll → Import payroll data → Download the CSV "
+                "template, then upload that file in the 'Gusto Template' box here "
+                "and click 'Fill Gusto Template' again."))
+
+        raw = base64.b64decode(self.gusto_template_file).decode('utf-8-sig')
+        reader = csv.DictReader(io.StringIO(raw))
+        fieldnames = reader.fieldnames or []
+        rows = list(reader)
+        if 'last_name' not in fieldnames or 'regular_hours' not in fieldnames:
+            raise UserError(_(
+                "That doesn't look like a Gusto payroll template (missing the "
+                "'last_name' / 'regular_hours' columns). Download a fresh "
+                "template from Gusto's Import payroll data screen."))
+
+        hours = self._elks_period_hours_by_name()
+
+        by_emp = defaultdict(list)
+        for r in rows:
+            key = ((r.get('last_name') or '').strip().lower(),
+                   (r.get('first_name') or '').strip().lower())
+            by_emp[key].append(r)
+
+        extra_rows = []
+        matched = set()
+        for key, data in hours.items():
+            emp_rows = by_emp.get(key)
+            if not emp_rows:
+                continue
+            matched.add(key)
+            primary = next(
+                (r for r in emp_rows
+                 if '(primary)' in (r.get('title') or '').lower()),
+                emp_rows[0])
+            primary['regular_hours'] = self._elks_fmt_hours(data['regular'])
+            if 'paycheck_tips' in fieldnames:
+                primary['paycheck_tips'] = self._elks_fmt_hours(data['tips'])
+            if data['event']:
+                event_row = next(
+                    (r for r in emp_rows
+                     if 'event' in (r.get('title') or '').lower()), None)
+                if event_row:
+                    event_row['regular_hours'] = self._elks_fmt_hours(
+                        data['event'])
+                else:
+                    nr = {fn: '' for fn in fieldnames}
+                    nr['last_name'] = primary.get('last_name')
+                    nr['first_name'] = primary.get('first_name')
+                    nr['title'] = 'Event Bartender'
+                    if 'gusto_employee_id' in fieldnames:
+                        nr['gusto_employee_id'] = primary.get(
+                            'gusto_employee_id')
+                    nr['regular_hours'] = self._elks_fmt_hours(data['event'])
+                    if 'personal_note' in fieldnames:
+                        nr['personal_note'] = 'Event hours — verify Gusto job'
+                    extra_rows.append(nr)
+
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=fieldnames,
+                                extrasaction='ignore')
+        writer.writeheader()
+        for r in rows:
+            writer.writerow(r)
+        for r in extra_rows:
+            writer.writerow(r)
         csv_content = output.getvalue()
         output.close()
-        filename = f"Gusto_Hours_{self.date_from}_{self.date_to}.csv"
-        return self._elks_stash_csv(csv_content, filename)
+
+        # Flag anyone with Odoo hours we couldn't match to a template row.
+        unmatched = [k for k in hours if k not in matched]
+        warning = False
+        if unmatched:
+            names = ", ".join(sorted("%s, %s" % (ln.title(), fn.title())
+                                     for ln, fn in unmatched))
+            warning = _(
+                "These employees have hours in Odoo but no matching row in the "
+                "Gusto template (check the name spelling in Gusto): %s") % names
+
+        filename = f"Gusto_Timesheet_{self.date_from}_{self.date_to}.csv"
+        self.write({
+            'csv_file': base64.b64encode(csv_content.encode('utf-8')),
+            'csv_filename': filename,
+            'no_hours_warning': warning,
+        })
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Download Gusto Timesheet'),
+            'res_model': self._name,
+            'res_id': self.id,
+            'view_mode': 'form',
+            'target': 'new',
+        }
 
     def _elks_gusto_1099_rows(self):
         """{hr.employee: {'labor','grat','hours'}} of event pay for 1099s.

@@ -88,7 +88,7 @@
                                     <tr>
                                         <td style="width:60%;">
                                             <h3 style="margin:0; color:#333;">
-                                                <span t-esc="employee.name"/>
+                                                <span t-esc="wizard._elks_display_name(employee)"/>
                                             </h3>
                                             <p style="margin:4px 0 0 0; font-size:12px; color:#777;"
                                                t-if="employee.department_id">
@@ -252,7 +252,7 @@
                             <t t-if="elks_ev_atts or ev_lines">
                                 <div style="margin-top:25px;">
                                     <div style="background:#003366; color:#fff; padding:5px 8px; font-weight:bold; font-size:12px;">
-                                        <t t-if="is_1099">1099 Event Pay — </t><t t-else="">Event Pay (call-out rate) — </t><span t-esc="employee.name"/>
+                                        <t t-if="is_1099">1099 Event Pay — </t><t t-else="">Event Pay (call-out rate) — </t><span t-esc="wizard._elks_display_name(employee)"/>
                                     </div>
                                     <table style="width:100%; border-collapse:collapse; font-size:11px; margin-top:4px;">
                                         <thead>

@@ -80,7 +80,7 @@ class TimecardPortal(CustomerPortal):
     def _elks_approver_domain(self):
         """Timecards the current user is the Attendance approver for (open)."""
         return self._ELKS_NOT_VOLUNTEER + [
-            ('approver_id', '=', request.env.user.id),
+            ('approver_ids', 'in', request.env.user.id),
             ('x_closed', '=', False)]
 
     def _elks_get_timecard(self, timecard_id):
@@ -115,7 +115,7 @@ class TimecardPortal(CustomerPortal):
                 '|', '|',
                 ('employee_id.user_id', '=', user.id),
                 ('employee_id.work_contact_id', '=', user.partner_id.id),
-                ('approver_id', '=', user.id)]
+                ('approver_ids', 'in', user.id)]
 
     # ------------------------------------------------------------------
     # Main page: current period (detailed) + past periods (searchable)
