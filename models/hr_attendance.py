@@ -161,10 +161,8 @@ class HrAttendance(models.Model):
             return False
         Cron = self.env['elksattendance.timecard.cron']
         domain = [('x_is_event', '=', True),
-                  '|', ('x_event_date', '>=', Cron._lodge_date(self.check_in) - timedelta(days=1)),
-                       ('x_cleanup_datetime', '>=', self.check_in),
-                  '|', ('x_event_date', '<=', Cron._lodge_date(self.check_out)),
-                       ('x_requested_setup', '<=', self.check_out)]
+                  ('x_event_date', '>=', Cron._lodge_date(self.check_in) - timedelta(days=1)),
+                  ('x_event_date', '<=', Cron._lodge_date(self.check_out))]
         if 'parent_id' in Event._fields:
             domain += [('parent_id', '=', False)]
         if 'company_id' in Event._fields:
@@ -182,18 +180,31 @@ class HrAttendance(models.Model):
     def _elks_event_work_hours(self):
         """Pay the entire qualifying event shift at the event rate.
 
-        An explicit event link includes setup/cleanup on any associated date.
-        Unlinked shifts qualify by overlap with the setup-through-cleanup window.
+        Custodial work requires a named entry on this event's custodial call-out.
+        Only event-linked rostered custodial work qualifies outside event hours.
+        All other staff must overlap the actual event, regardless of roster.
         This keeps event shifts entirely out of the regular-hours section.
         """
         self.ensure_one()
         event = self._elks_payroll_event()
         if not (self.check_in and self.check_out):
             return 0.0
-        return (self.worked_hours or 0.0) if event else 0.0
+        if not event:
+            return 0.0
+        custodial = self._elks_event_pay_role(event) == 'custodial'
+        if custodial:
+            # Custodial is roster-only, even during the event itself.
+            if not self._elks_custodial_callout_line(event):
+                return 0.0
+            if self.x_event_id or self._elks_hours_for_event(event) > 0:
+                return self.worked_hours or 0.0
+            return 0.0
+        if self._elks_hours_for_event(event) > 0:
+            return self.worked_hours or 0.0
+        return 0.0
 
     def _elks_hours_for_event(self, event):
-        """Overlap with setup through cleanup; schedule is lodge-local, datetimes UTC."""
+        """Overlap with actual event hours only, including overnight events."""
         self.ensure_one()
         if not (self.check_in and self.check_out and event.x_event_date):
             return 0.0
@@ -204,20 +215,47 @@ class HrAttendance(models.Model):
         def utc(hours):
             return tz.localize(midnight + timedelta(hours=hours)).astimezone(
                 pytz.utc).replace(tzinfo=None)
-        setup = getattr(event, 'x_requested_setup', False)
-        cleanup = getattr(event, 'x_cleanup_datetime', False)
-        if start == end and not (setup and cleanup and cleanup > setup):
+        if start == end:
             return 0.0
         window_start = utc(start)
         window_end = utc(end if end > start else end + 24)
-        if setup:
-            window_start = min(window_start, setup)
-        if cleanup:
-            window_end = max(window_end, cleanup)
         left = max(self.check_in, window_start)
         right = min(self.check_out, window_end)
         return min(self.worked_hours or 0.0,
                    max(0.0, (right - left).total_seconds() / 3600))
+
+    def _elks_custodial_callout_line(self, event):
+        """Only this event's named custodial workers qualify for cleaning pay."""
+        self.ensure_one()
+        if 'elks.event.callout.line' not in self.env:
+            return False
+        return self.env['elks.event.callout.line'].sudo().search([
+            ('callout_id.event_id', '=', event.id),
+            ('callout_id.department', '=', 'custodial'),
+            ('callout_id.state', '!=', 'cancelled'),
+            ('employee_id', '=', self.employee_id.id),
+        ], limit=1)
+
+    def _elks_event_pay_role(self, event):
+        """Recognize custodial work by explicit role, department, or event call-out.
+
+        The employee may belong to Board of Directors (e.g. the custodian), so
+        an event's custodial roster can identify the cleaning role as well.
+        """
+        self.ensure_one()
+        role = self.x_event_role if 'x_event_role' in self._fields else 'event'
+        if role not in ('bartender', 'kitchen', 'custodial'):
+            department = (self.employee_id.department_id.name or '').lower()
+            if any(word in department for word in ('lounge', 'bar')):
+                role = 'bartender'
+            elif 'kitchen' in department:
+                role = 'kitchen'
+            elif any(word in department for word in ('custodial', 'clean')):
+                role = 'custodial'
+        if role not in ('bartender', 'kitchen', 'custodial'):
+            if self._elks_custodial_callout_line(event):
+                role = 'custodial'
+        return role or 'event'
 
     def _elks_effective_event_rate(self):
         """Event labor rate for actual work, independent of certification.
@@ -231,15 +269,11 @@ class HrAttendance(models.Model):
         if not hours or not self.employee_id:
             return 0.0, 0.0
         event = self._elks_payroll_event()
-        role = self.x_event_role if 'x_event_role' in self._fields else 'event'
-        if role not in ('bartender', 'kitchen', 'custodial'):
-            department = (self.employee_id.department_id.name or '').lower()
-            if any(word in department for word in ('lounge', 'bar')):
-                role = 'bartender'
-            elif 'kitchen' in department:
-                role = 'kitchen'
-            elif any(word in department for word in ('custodial', 'clean')):
-                role = 'custodial'
+        role = self._elks_event_pay_role(event)
+        if role == 'custodial':
+            line = self._elks_custodial_callout_line(event)
+            rate = (line.rate or 0.0) if line else 0.0
+            return rate, hours * rate
         dept = {'bartender': 'bar', 'kitchen': 'kitchen',
                 'custodial': 'custodial'}.get(role)
         rate = 0.0
@@ -265,7 +299,7 @@ class HrAttendance(models.Model):
         if 'x_event_id' not in self._fields or not self.x_event_id:
             return ''
         if not self._elks_event_work_hours():
-            return _("%s: shift has no completed clock-in/out; check attendance times") % self.x_event_id.name
+            return _("%s: shift is outside event hours (before/after cleaning pay applies only to custodial work)") % self.x_event_id.name
         if self._elks_effective_event_rate()[0] > 0:
             return ''
         return _("%s: no unambiguous event pay rate; check call-out and lodge role rates") % self.x_event_id.name

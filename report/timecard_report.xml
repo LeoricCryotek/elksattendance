@@ -350,7 +350,7 @@
                                     </table>
                                     <p style="font-size:10px; color:#666; margin-top:3px;">
                                         <t t-if="is_1099">1099 non-employee compensation — event hours at the call-out rate shown, paid without tax withholding.</t>
-                                        <t t-else="">The entire qualifying event shift, including associated setup and cleanup, is paid at the event (call-out) rate shown and excluded from regular hours above. Payroll calculates the pay.</t>
+                                        <t t-else="">The entire qualifying shift is paid at the event rate and excluded from regular hours above. Cleaning before or after the event is paid only for employees listed on that event's custodial call-out, at their listed rate. Payroll calculates the pay.</t>
                                     </p>
                                 </div>
                             </t>
