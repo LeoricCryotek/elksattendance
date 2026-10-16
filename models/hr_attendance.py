@@ -153,6 +153,11 @@ class HrAttendance(models.Model):
             ('callout_id.state', '!=', 'cancelled'),
             ('employee_id', '=', self.employee_id.id),
         ])
+        if self.check_in:
+            work_date = self.env['elksattendance.timecard.cron']._lodge_date(self.check_in)
+            lines = lines.filtered(lambda line: line.callout_id.department != 'custodial'
+                                   or not getattr(line, 'cleaning_date', False)
+                                   or line.cleaning_date == work_date)
         role = self.x_event_role if 'x_event_role' in self._fields else False
         dept = {'bartender': 'bar', 'kitchen': 'kitchen', 'custodial': 'custodial'}.get(role)
         preferred = lines.filtered(lambda line: line.callout_id.department == dept) if dept else lines
@@ -194,7 +199,10 @@ class HrAttendance(models.Model):
             ('callout_id.event_id.x_approval_state', '=', 'approved'),
         ])
         events = lines.mapped('callout_id.event_id').filtered(
-            lambda event: self._elks_hours_for_event(event) > 0)
+            lambda event: self._elks_hours_for_event(event) > 0 or any(
+                line.callout_id.event_id == event and line.callout_id.department == 'custodial'
+                and getattr(line, 'cleaning_date', False) == self.env['elksattendance.timecard.cron']._lodge_date(self.check_in)
+                for line in lines))
         if len(events) > 1:
             raise UserError(_("Multiple rostered events overlap this shift. Set the Event on the attendance."))
         return events[:1]
@@ -216,7 +224,7 @@ class HrAttendance(models.Model):
         line = self._elks_payroll_callout_line(event)
         if not line:
             return 0.0
-        if line.callout_id.department == 'custodial' and self.x_event_id:
+        if line.callout_id.department == 'custodial' and (self.x_event_id or getattr(line, 'cleaning_date', False)):
             return self.worked_hours or 0.0
         return (self.worked_hours or 0.0) if self._elks_hours_for_event(event) > 0 else 0.0
 

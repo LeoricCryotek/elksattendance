@@ -355,6 +355,13 @@
                                 </div>
                             </t>
 
+                            <div style="margin-top:12px; padding:10px; border:1px solid #003366; font-size:13px;">
+                                <strong>Combined Hours — Regular + Event: </strong>
+                                <t t-set="combined_hours" t-value="total_hours + (ev_hours if elks_ev_atts else 0.0)"/>
+                                <span t-esc="wizard._format_hours(combined_hours)"/>
+                                (<span t-esc="wizard._elks_fmt_hours(combined_hours)"/> decimal)
+                            </div>
+
                             <!-- ===== TOTAL TIPS — PAY PERIOD =====
                                  One combined figure for every tip on the card: the
                                  regular-shift tips (Period Total above) plus the event
