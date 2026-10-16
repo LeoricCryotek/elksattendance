@@ -40,9 +40,6 @@ and reported on (e.g. in the payroll timecard report).
 It is only editable when the employee is flagged as tipped.
 """
 import logging
-from datetime import datetime, time
-
-import pytz
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
@@ -187,45 +184,26 @@ class HrAttendance(models.Model):
         return rate, (self.worked_hours or 0.0) * rate
 
     # === HUMAN ===
-    # Did this shift actually fall on the event day, within the start/end time
-    # this person was rostered for? Only then is it event-rate time. Clocking in
-    # before setup, staying for cleanup, or working a different day are NOT event
-    # time — they're paid the normal wage.
+    # Did this shift fall on the EVENT DATE? That's the rule: on the day of the
+    # event, the hours a rostered person clocks in/out count toward the event
+    # rate. Work on a DIFFERENT day (e.g. setup the day before, cleanup the day
+    # after) is NOT event time — it's paid the normal wage.
     # === AI AGENT ===
-    # Window = the matched callout LINE's event_date (related to the event's
-    # x_event_date) + its start_time/end_time (24h decimal floats, the per-person
-    # Start/End on the staff roster). Built in the LODGE tz, converted to naive-
-    # UTC, overlap-tested against [check_in, check_out]. If the line has no usable
-    # time window we fall back to a same-event-date test so a wrong-day punch is
-    # still excluded. Read-only; never writes.
+    # Simple, robust date match: the punch's LODGE-LOCAL date must equal the
+    # callout line's event_date. We deliberately do NOT test the per-person
+    # start/end time window — that was too fragile (it dropped real event shifts
+    # whose rostered times didn't line up exactly with the clocked times). The
+    # date check still excludes the wrong-day auto-linked punches that caused the
+    # original bug. Read-only; never writes.
     def _elks_punch_in_roster_window(self, line):
         self.ensure_one()
         if not line or not self.check_in:
             return False
-        Cron = self.env['elksattendance.timecard.cron']
         date = line.callout_id.event_date
         if not date:
             return False
-        start_h = line.start_time or 0.0
-        end_h = line.end_time or 0.0
-        if end_h <= start_h:
-            # No usable per-person window: fall back to "same event date".
-            return Cron._lodge_date(self.check_in) == date
-        tz = Cron._lodge_tz()
-
-        def _to_utc(hours):
-            h = int(hours)
-            m = int(round((hours - h) * 60))
-            if h >= 24:  # guard a 24.0 end-of-day value
-                h, m = 23, 59
-            local = tz.localize(datetime.combine(date, time(hour=h, minute=m)))
-            return local.astimezone(pytz.utc).replace(tzinfo=None)
-
-        win_start = _to_utc(start_h)
-        win_end = _to_utc(end_h)
-        punch_end = self.check_out or fields.Datetime.now()
-        # Overlap test: punch starts before the window ends AND ends after it starts.
-        return self.check_in < win_end and punch_end > win_start
+        Cron = self.env['elksattendance.timecard.cron']
+        return Cron._lodge_date(self.check_in) == date
 
     # === HUMAN ===
     # Whether a shift counts as PAID (payroll) hours or VOLUNTEER / CHARITY
