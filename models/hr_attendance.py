@@ -161,10 +161,15 @@ class HrAttendance(models.Model):
             return False
         Cron = self.env['elksattendance.timecard.cron']
         domain = [('x_is_event', '=', True),
-                  ('x_event_date', '>=', Cron._lodge_date(self.check_in) - timedelta(days=1)),
-                  ('x_event_date', '<=', Cron._lodge_date(self.check_out))]
+                  '|', ('x_event_date', '>=', Cron._lodge_date(self.check_in) - timedelta(days=1)),
+                       ('x_cleanup_datetime', '>=', self.check_in),
+                  '|', ('x_event_date', '<=', Cron._lodge_date(self.check_out)),
+                       ('x_requested_setup', '<=', self.check_out)]
+        if 'parent_id' in Event._fields:
+            domain += [('parent_id', '=', False)]
         if 'company_id' in Event._fields:
-            domain += [('company_id', '=', self.employee_id.company_id.id)]
+            domain += ['|', ('company_id', '=', False),
+                       ('company_id', '=', self.employee_id.company_id.id)]
         matches = Event.search(domain).filtered(
             lambda event: self._elks_hours_for_event(event) > 0)
         if len(matches) > 1:
@@ -177,29 +182,40 @@ class HrAttendance(models.Model):
     def _elks_event_work_hours(self):
         """Pay the entire qualifying event shift at the event rate.
 
-        Schedule overlap establishes eligibility; it does not clip paid hours.
+        An explicit event link includes setup/cleanup on any associated date.
+        Unlinked shifts qualify by overlap with the setup-through-cleanup window.
         This keeps event shifts entirely out of the regular-hours section.
         """
         self.ensure_one()
         event = self._elks_payroll_event()
-        return (self.worked_hours or 0.0) if event and self._elks_hours_for_event(event) > 0 else 0.0
+        if not (self.check_in and self.check_out):
+            return 0.0
+        return (self.worked_hours or 0.0) if event else 0.0
 
     def _elks_hours_for_event(self, event):
-        """Intersect a full shift with a lodge-local event (including overnight)."""
+        """Overlap with setup through cleanup; schedule is lodge-local, datetimes UTC."""
         self.ensure_one()
         if not (self.check_in and self.check_out and event.x_event_date):
             return 0.0
         start = event.x_event_start_time or 0.0
         end = event.x_event_end_time or 0.0
-        if start == end:
-            return 0.0
         tz = self.env['elksattendance.timecard.cron']._lodge_tz()
         midnight = datetime.combine(event.x_event_date, time())
         def utc(hours):
             return tz.localize(midnight + timedelta(hours=hours)).astimezone(
                 pytz.utc).replace(tzinfo=None)
-        left = max(self.check_in, utc(start))
-        right = min(self.check_out, utc(end if end > start else end + 24))
+        setup = getattr(event, 'x_requested_setup', False)
+        cleanup = getattr(event, 'x_cleanup_datetime', False)
+        if start == end and not (setup and cleanup and cleanup > setup):
+            return 0.0
+        window_start = utc(start)
+        window_end = utc(end if end > start else end + 24)
+        if setup:
+            window_start = min(window_start, setup)
+        if cleanup:
+            window_end = max(window_end, cleanup)
+        left = max(self.check_in, window_start)
+        right = min(self.check_out, window_end)
         return min(self.worked_hours or 0.0,
                    max(0.0, (right - left).total_seconds() / 3600))
 
@@ -216,6 +232,14 @@ class HrAttendance(models.Model):
             return 0.0, 0.0
         event = self._elks_payroll_event()
         role = self.x_event_role if 'x_event_role' in self._fields else 'event'
+        if role not in ('bartender', 'kitchen', 'custodial'):
+            department = (self.employee_id.department_id.name or '').lower()
+            if any(word in department for word in ('lounge', 'bar')):
+                role = 'bartender'
+            elif 'kitchen' in department:
+                role = 'kitchen'
+            elif any(word in department for word in ('custodial', 'clean')):
+                role = 'custodial'
         dept = {'bartender': 'bar', 'kitchen': 'kitchen',
                 'custodial': 'custodial'}.get(role)
         rate = 0.0
@@ -241,7 +265,7 @@ class HrAttendance(models.Model):
         if 'x_event_id' not in self._fields or not self.x_event_id:
             return ''
         if not self._elks_event_work_hours():
-            return _("%s: no clocked overlap with the event schedule; check event times") % self.x_event_id.name
+            return _("%s: shift has no completed clock-in/out; check attendance times") % self.x_event_id.name
         if self._elks_effective_event_rate()[0] > 0:
             return ''
         return _("%s: no unambiguous event pay rate; check call-out and lodge role rates") % self.x_event_id.name

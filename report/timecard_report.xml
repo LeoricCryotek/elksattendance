@@ -314,7 +314,7 @@
                                                             <t t-else=""><span style="color:red; font-style:italic;">OPEN</span></t>
                                                         </td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="att._elks_payroll_event().name or ''"/></td>
-                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="wizard._format_hours(att._elks_event_work_hours())"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="wizard._format_hours(att._elks_event_work_hours())"/><br/><small style="white-space:nowrap; color:#555;">(<span t-esc="wizard._elks_fmt_hours(att._elks_event_work_hours())"/> decimal)</small></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % er[0]"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % row_ev_tip"/></td>
                                                     </tr>
@@ -332,7 +332,7 @@
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:center;"><span t-esc="el.start_str or '—'"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:center;"><span t-esc="el.end_str or '—'"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc;"><span t-esc="el.callout_id.event_name or ''"/></td>
-                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="wizard._format_hours(el.hours or 0.0)"/></td>
+                                                        <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="wizard._format_hours(el.hours or 0.0)"/><br/><small style="white-space:nowrap; color:#555;">(<span t-esc="wizard._elks_fmt_hours(el.hours or 0.0)"/> decimal)</small></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % (el.rate or 0.0)"/></td>
                                                         <td style="padding:5px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % row_ev_tip"/></td>
                                                     </tr>
@@ -342,7 +342,7 @@
                                         <tfoot>
                                             <tr style="background:#f0f0f0; font-weight:bold;">
                                                 <td colspan="5" style="padding:6px 8px; border:1px solid #ccc; text-align:right;">Total Event Hours / Tips:</td>
-                                                <td style="padding:6px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="wizard._format_hours(ev_hours)"/></td>
+                                                <td style="padding:6px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="wizard._format_hours(ev_hours)"/><br/><small style="white-space:nowrap; color:#555;">(<span t-esc="wizard._elks_fmt_hours(ev_hours)"/> decimal)</small></td>
                                                 <td style="padding:6px 8px; border:1px solid #ccc;"/>
                                                 <td style="padding:6px 8px; border:1px solid #ccc; text-align:right;"><span t-esc="'$%.2f' % ev_tips_total"/></td>
                                             </tr>
@@ -350,7 +350,7 @@
                                     </table>
                                     <p style="font-size:10px; color:#666; margin-top:3px;">
                                         <t t-if="is_1099">1099 non-employee compensation — event hours at the call-out rate shown, paid without tax withholding.</t>
-                                        <t t-else="">The entire qualifying event shift is paid at the event (call-out) rate shown and excluded from regular hours above. Payroll calculates the pay.</t>
+                                        <t t-else="">The entire qualifying event shift, including associated setup and cleanup, is paid at the event (call-out) rate shown and excluded from regular hours above. Payroll calculates the pay.</t>
                                     </p>
                                 </div>
                             </t>
