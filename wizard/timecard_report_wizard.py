@@ -717,16 +717,9 @@ class ElksTimecardReportWizard(models.TransientModel):
             msgs.append(_(
                 "These employees have hours in Odoo but no matching row in the "
                 "Gusto template (check the name spelling in Gusto): %s") % names)
-        if folded:
-            ev = ", ".join(sorted(
-                "%s, %s (%s hrs)" % (ln.title(), fn.title(),
-                                     self._elks_fmt_hours(h))
-                for ln, fn, h in folded))
-            msgs.append(_(
-                "FYI — event hours paid at the STANDARD rate (these people have "
-                "no separate event job in Gusto, so their event hours were added "
-                "to their regular hours): %s. If any of them should instead get a "
-                "special event rate, add an event job for them in Gusto.") % ev)
+        # Note: event hours for people with no separate event job are folded
+        # into their regular hours silently (standard-rate event work is normal
+        # and expected — no need to flag it every period).
         warning = "\n\n".join(msgs) if msgs else False
 
         filename = f"Gusto_Timesheet_{self.date_from}_{self.date_to}.csv"
