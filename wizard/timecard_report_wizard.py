@@ -668,7 +668,7 @@ class ElksTimecardReportWizard(models.TransientModel):
         # invented "Event Bartender" row for someone who has no such job in Gusto
         # collides with their Primary row ("can only be selected for one row").
         matched = set()
-        no_event_job = []  # (last, first, event_hours) — event work, no event job
+        folded = []  # (last, first, event_hours) — event hours paid at std rate
         for key, data in hours.items():
             emp_rows = by_emp.get(key)
             if not emp_rows:
@@ -678,19 +678,26 @@ class ElksTimecardReportWizard(models.TransientModel):
                 (r for r in emp_rows
                  if '(primary)' in (r.get('title') or '').lower()),
                 emp_rows[0])
-            primary['regular_hours'] = self._elks_fmt_hours(data['regular'])
-            if 'paycheck_tips' in fieldnames:
-                primary['paycheck_tips'] = self._elks_fmt_hours(data['tips'])
+            reg_hours = data['regular']
             if data['event']:
                 event_row = next(
                     (r for r in emp_rows
                      if r is not primary
                      and 'event' in (r.get('title') or '').lower()), None)
                 if event_row:
+                    # Has a separate event job (e.g. Event Bartender at $15) —
+                    # event hours go there at the event rate.
                     event_row['regular_hours'] = self._elks_fmt_hours(
                         data['event'])
                 else:
-                    no_event_job.append((key[0], key[1], data['event']))
+                    # No event job in Gusto → this person is paid their STANDARD
+                    # rate for event work (e.g. kitchen staff). Fold the event
+                    # hours into their regular hours; it's not a problem.
+                    reg_hours += data['event']
+                    folded.append((key[0], key[1], data['event']))
+            primary['regular_hours'] = self._elks_fmt_hours(reg_hours)
+            if 'paycheck_tips' in fieldnames:
+                primary['paycheck_tips'] = self._elks_fmt_hours(data['tips'])
 
         output = io.StringIO()
         writer = csv.DictWriter(output, fieldnames=fieldnames,
@@ -710,17 +717,16 @@ class ElksTimecardReportWizard(models.TransientModel):
             msgs.append(_(
                 "These employees have hours in Odoo but no matching row in the "
                 "Gusto template (check the name spelling in Gusto): %s") % names)
-        if no_event_job:
+        if folded:
             ev = ", ".join(sorted(
                 "%s, %s (%s hrs)" % (ln.title(), fn.title(),
                                      self._elks_fmt_hours(h))
-                for ln, fn, h in no_event_job))
+                for ln, fn, h in folded))
             msgs.append(_(
-                "These employees worked EVENT hours but have no event job row in "
-                "the Gusto template, so those hours were NOT added (they'd clash "
-                "with the person's primary job). Add an event job for them in "
-                "Gusto and re-download the template, or enter those hours "
-                "manually: %s") % ev)
+                "FYI — event hours paid at the STANDARD rate (these people have "
+                "no separate event job in Gusto, so their event hours were added "
+                "to their regular hours): %s. If any of them should instead get a "
+                "special event rate, add an event job for them in Gusto.") % ev)
         warning = "\n\n".join(msgs) if msgs else False
 
         filename = f"Gusto_Timesheet_{self.date_from}_{self.date_to}.csv"
