@@ -29,7 +29,11 @@
                         <field name="date_to"/>
                     </group>
                     <group string="Employees">
+                        <!-- default_focus keeps the initial focus off Period
+                             Start, whose date widget otherwise pops its calendar
+                             every time the screen (re)opens after Fill. -->
                         <field name="employee_ids" widget="many2many_tags"
+                               default_focus="1"
                                placeholder="Leave empty for all paid staff..."/>
                     </group>
                 </group>

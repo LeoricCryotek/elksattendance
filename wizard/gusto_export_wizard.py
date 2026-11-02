@@ -75,6 +75,23 @@ class ElksGustoExportWizard(models.TransientModel):
             'target': 'new',
         }
 
+    def _download(self):
+        """Download the result file directly, without reopening the form (which
+        was popping the Period Start date picker on every Fill)."""
+        return {
+            'type': 'ir.actions.act_url',
+            'url': ('/web/content?model=%s&id=%s&field=csv_file'
+                    '&filename_field=csv_filename&download=true'
+                    % (self._name, self.id)),
+            'target': 'self',
+        }
+
+    def _finish(self):
+        """Reopen the form only when there's a warning to read; otherwise just
+        download the file (no reopen -> no date-picker popup)."""
+        self.ensure_one()
+        return self._reopen() if self.no_hours_warning else self._download()
+
     def action_fill_gusto(self):
         """Fill the uploaded Gusto template with hours + paycheck tips."""
         self.ensure_one()
@@ -85,7 +102,7 @@ class ElksGustoExportWizard(models.TransientModel):
             'csv_filename': rw.csv_filename,
             'no_hours_warning': rw.no_hours_warning,
         })
-        return self._reopen()
+        return self._finish()
 
     def action_export_1099(self):
         """Build the Gusto contractor-payment CSV for event 1099 workers."""
@@ -95,5 +112,6 @@ class ElksGustoExportWizard(models.TransientModel):
         self.write({
             'csv_file': rw.csv_file,
             'csv_filename': rw.csv_filename,
+            'no_hours_warning': False,
         })
-        return self._reopen()
+        return self._finish()
